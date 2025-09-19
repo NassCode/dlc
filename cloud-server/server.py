@@ -232,7 +232,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
 
     frame_skip_counter = 0
-    FRAME_SKIP = 3  # Process every 3rd frame for better performance
+    FRAME_SKIP = 8  # Process every 8th frame for much better performance
     last_processed_frame = None
 
     try:
@@ -245,11 +245,11 @@ async def websocket_endpoint(websocket: WebSocket):
             frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
             if frame is not None:
-                # Resize frame for faster processing
+                # Resize frame for much faster processing
                 height, width = frame.shape[:2]
-                if width > 640:  # Limit max width to 640px
-                    scale = 640 / width
-                    new_width = 640
+                if width > 320:  # Limit max width to 320px for speed
+                    scale = 320 / width
+                    new_width = 320
                     new_height = int(height * scale)
                     frame = cv2.resize(frame, (new_width, new_height))
 
@@ -265,8 +265,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Use last processed frame or original frame
                     processed_frame = last_processed_frame if last_processed_frame is not None else frame
 
-                # Encode processed frame back to bytes with lower quality for speed
-                _, buffer = cv2.imencode('.jpg', processed_frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+                # Encode processed frame back to bytes with very low quality for speed
+                _, buffer = cv2.imencode('.jpg', processed_frame, [cv2.IMWRITE_JPEG_QUALITY, 30])
 
                 # Send processed frame back
                 await manager.send_personal_bytes(buffer.tobytes(), websocket)
