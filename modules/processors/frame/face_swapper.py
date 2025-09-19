@@ -30,8 +30,9 @@ models_dir = os.path.join(
 def pre_check() -> bool:
     download_directory_path = models_dir
     model_url = "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128.onnx"
-    if "CUDAExecutionProvider" in modules.globals.execution_providers:
-        model_url = "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128_fp16.onnx"
+    # Force FP32 model for now to fix GPU distortion issues
+    # if "CUDAExecutionProvider" in modules.globals.execution_providers:
+    #     model_url = "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128_fp16.onnx"
 
     conditional_download(
         download_directory_path,
