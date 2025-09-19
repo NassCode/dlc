@@ -1,2 +1,78 @@
-https://huggingface.co/hacksider/deep-live-cam/resolve/main/GFPGANv1.4.pth
-https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128_fp16.onnx
+nweaser14@instance-20250919-155905:~$ cd dlc
+nweaser14@instance-20250919-155905:~/dlc$ source venv/bin/activate
+(venv) nweaser14@instance-20250919-155905:~/dlc$ python cloud-server/server.py --mode gpu --host 0.0.0.0 --port
+ 8000
+2025-09-19 21:57:18.482492: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:467] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1758319038.665453    2237 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+E0000 00:00:1758319038.717439    2237 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+W0000 00:00:1758319039.132496    2237 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1758319039.132545    2237 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1758319039.132553    2237 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1758319039.132557    2237 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+============================================================
+🚀 Deep-Live-Cam Cloud Server
+============================================================
+Mode: GPU
+Host: 0.0.0.0
+Port: 8000
+============================================================
+GPU mode enabled - Using CUDA acceleration
+Execution providers: ['CUDAExecutionProvider', 'CPUExecutionProvider']
+Downloading: 264MB [00:02, 106MB/s]                                                                            
+Face swapper initialized successfully
+✓ Face swapper initialized successfully
+
+🌐 Server starting at http://0.0.0.0:8000
+📡 WebSocket endpoint: /ws
+📤 Upload endpoint: /upload-source
+❤️ Health check: /health
+
+Press Ctrl+C to stop the server
+============================================================
+INFO:     Started server process [2237]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     ('178.134.124.130', 50710) - "WebSocket /ws" [accepted]
+Client connected. Total connections: 1
+INFO:     connection open
+Client disconnected. Total connections: 0
+INFO:     connection closed
+INFO:     ('178.134.124.130', 50757) - "WebSocket /ws" [accepted]
+Client connected. Total connections: 1
+INFO:     connection open
+Segmentation fault
+(venv) nweaser14@instance-20250919-155905:~/dlc$ python cloud-server/server.py --mode gpu --host 0.0.0.0 --port 8000
+2025-09-19 21:59:36.178248: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:467] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1758319176.200781    2610 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+E0000 00:00:1758319176.208281    2610 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+W0000 00:00:1758319176.227893    2610 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1758319176.227921    2610 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1758319176.227925    2610 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1758319176.227928    2610 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+============================================================
+🚀 Deep-Live-Cam Cloud Server
+============================================================
+Mode: GPU
+Host: 0.0.0.0
+Port: 8000
+============================================================
+GPU mode enabled - Using CUDA acceleration
+Execution providers: ['CUDAExecutionProvider', 'CPUExecutionProvider']
+Face swapper initialized successfully
+✓ Face swapper initialized successfully
+
+🌐 Server starting at http://0.0.0.0:8000
+📡 WebSocket endpoint: /ws
+📤 Upload endpoint: /upload-source
+❤️ Health check: /health
+
+Press Ctrl+C to stop the server
+============================================================
+INFO:     Started server process [2610]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+Segmentation fault
