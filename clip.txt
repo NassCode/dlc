@@ -1,0 +1,2 @@
+https://huggingface.co/hacksider/deep-live-cam/resolve/main/GFPGANv1.4.pth
+https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128_fp16.onnx
