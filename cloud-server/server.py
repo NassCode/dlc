@@ -231,6 +231,10 @@ async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time video processing"""
     await manager.connect(websocket)
 
+    frame_skip_counter = 0
+    FRAME_SKIP = 3  # Process every 3rd frame for better performance
+    last_processed_frame = None
+
     try:
         while True:
             # Receive frame data
@@ -241,11 +245,28 @@ async def websocket_endpoint(websocket: WebSocket):
             frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
             if frame is not None:
-                # Process frame with face swapping
-                processed_frame = process_frame_with_face_swap(frame)
+                # Resize frame for faster processing
+                height, width = frame.shape[:2]
+                if width > 640:  # Limit max width to 640px
+                    scale = 640 / width
+                    new_width = 640
+                    new_height = int(height * scale)
+                    frame = cv2.resize(frame, (new_width, new_height))
 
-                # Encode processed frame back to bytes
-                _, buffer = cv2.imencode('.jpg', processed_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                frame_skip_counter += 1
+
+                # Only process every Nth frame
+                if frame_skip_counter >= FRAME_SKIP:
+                    frame_skip_counter = 0
+                    # Process frame with face swapping
+                    processed_frame = process_frame_with_face_swap(frame)
+                    last_processed_frame = processed_frame
+                else:
+                    # Use last processed frame or original frame
+                    processed_frame = last_processed_frame if last_processed_frame is not None else frame
+
+                # Encode processed frame back to bytes with lower quality for speed
+                _, buffer = cv2.imencode('.jpg', processed_frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
 
                 # Send processed frame back
                 await manager.send_personal_bytes(buffer.tobytes(), websocket)
