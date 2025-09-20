@@ -1,0 +1,3 @@
+@echo off
+echo Starting Deep Live Cam Desktop App...
+npm start

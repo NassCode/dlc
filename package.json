@@ -1,0 +1,46 @@
+{
+  "name": "deep-live-cam-desktop",
+  "version": "1.0.0",
+  "description": "Deep Live Cam Desktop App with Virtual Camera Support",
+  "main": "desktop-app/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "dependencies": {},
+  "optionalDependencies": {
+    "node-virtualcam": "^0.1.0"
+  },
+  "build": {
+    "appId": "com.deeplive.cam",
+    "productName": "Deep Live Cam",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "desktop-app/**/*",
+      "local-client/**/*",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "desktop-app/assets/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "desktop-app/assets/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "desktop-app/assets/icon.png"
+    }
+  }
+}

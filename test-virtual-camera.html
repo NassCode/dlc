@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Virtual Camera Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { padding: 10px 20px; margin: 5px; }
+        .status { margin: 10px 0; padding: 10px; background: #f0f0f0; border-radius: 5px; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <h1>🎭 Virtual Camera Test</h1>
+
+    <div>
+        <button onclick="testVirtualCamera()">Test Virtual Camera API</button>
+        <button onclick="startVirtualCamera()">Start Virtual Camera</button>
+        <button onclick="stopVirtualCamera()">Stop Virtual Camera</button>
+        <button onclick="testFrameSend()">Test Frame Send</button>
+    </div>
+
+    <div id="status" class="status">Ready to test...</div>
+
+    <script>
+        function updateStatus(message, isError = false) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = isError ? 'status error' : 'status success';
+        }
+
+        function testVirtualCamera() {
+            updateStatus('Testing virtual camera API availability...');
+
+            if (typeof window.virtualCamera === 'undefined') {
+                updateStatus('❌ Virtual camera API not available (not in desktop app)', true);
+                return;
+            }
+
+            if (typeof window.isDesktopApp === 'undefined') {
+                updateStatus('❌ Desktop app detection failed', true);
+                return;
+            }
+
+            updateStatus('✅ Virtual camera API available! Desktop app detected.');
+        }
+
+        async function startVirtualCamera() {
+            updateStatus('Starting virtual camera...');
+
+            try {
+                if (!window.virtualCamera) {
+                    updateStatus('❌ Virtual camera API not available', true);
+                    return;
+                }
+
+                const result = await window.virtualCamera.start();
+
+                if (result.success) {
+                    updateStatus(`✅ Virtual camera started: ${result.message}`);
+                } else {
+                    updateStatus(`❌ Failed to start: ${result.error}`, true);
+                }
+            } catch (error) {
+                updateStatus(`❌ Error: ${error.message}`, true);
+            }
+        }
+
+        async function stopVirtualCamera() {
+            updateStatus('Stopping virtual camera...');
+
+            try {
+                const result = await window.virtualCamera.stop();
+
+                if (result.success) {
+                    updateStatus(`✅ Virtual camera stopped: ${result.message}`);
+                } else {
+                    updateStatus(`❌ Failed to stop: ${result.error}`, true);
+                }
+            } catch (error) {
+                updateStatus(`❌ Error: ${error.message}`, true);
+            }
+        }
+
+        async function testFrameSend() {
+            updateStatus('Testing frame send...');
+
+            try {
+                // Create a test canvas with a colored rectangle
+                const canvas = document.createElement('canvas');
+                canvas.width = 640;
+                canvas.height = 480;
+                const ctx = canvas.getContext('2d');
+
+                // Draw a test pattern
+                ctx.fillStyle = '#4CAF50';
+                ctx.fillRect(0, 0, 640, 480);
+                ctx.fillStyle = '#FFF';
+                ctx.font = '48px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('TEST FRAME', 320, 240);
+                ctx.fillText(new Date().toLocaleTimeString(), 320, 300);
+
+                // Convert to base64
+                const imageData = canvas.toDataURL('image/jpeg', 0.8);
+
+                // Send to virtual camera
+                const result = await window.virtualCamera.sendFrame(imageData);
+
+                if (result.success) {
+                    updateStatus('✅ Test frame sent successfully');
+                } else {
+                    updateStatus(`❌ Failed to send frame: ${result.error}`, true);
+                }
+            } catch (error) {
+                updateStatus(`❌ Error: ${error.message}`, true);
+            }
+        }
+
+        // Auto-test on load
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(testVirtualCamera, 1000);
+        });
+    </script>
+</body>
+</html>

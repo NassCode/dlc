@@ -313,6 +313,21 @@
                 <button class="btn-secondary" id="stopProcessingBtn" disabled>Stop Processing</button>
             </div>
 
+            <div class="control-group" id="virtualCameraGroup" style="display: none;">
+                <h3>🎭 Virtual Camera</h3>
+                <button class="btn-success" id="startVirtualCameraBtn">Start Virtual Camera</button>
+                <button class="btn-secondary" id="stopVirtualCameraBtn" disabled>Stop Virtual Camera</button>
+                <div class="status" id="virtualCameraStatus">Virtual camera ready</div>
+                <div style="margin-top: 10px;">
+                    <label style="font-size: 0.9em; opacity: 0.8;">Output Resolution:</label>
+                    <select id="virtualCameraResolution" style="margin-left: 10px; padding: 5px; border-radius: 5px; background: rgba(255,255,255,0.2); color: white; border: none;">
+                        <option value="640x480">640 x 480</option>
+                        <option value="1280x720">1280 x 720 (HD)</option>
+                        <option value="1920x1080">1920 x 1080 (Full HD)</option>
+                    </select>
+                </div>
+            </div>
+
             <div class="control-group">
                 <h3>📊 Statistics</h3>
                 <div class="stats">
@@ -363,6 +378,7 @@
                 this.initializeElements();
                 this.setupEventListeners();
                 this.startStatsUpdate();
+                this.detectDesktopApp();
             }
 
             initializeElements() {
@@ -391,7 +407,13 @@
                     latencyValue: document.getElementById('latencyValue'),
                     framesValue: document.getElementById('framesValue'),
                     inputFps: document.getElementById('inputFps'),
-                    outputFps: document.getElementById('outputFps')
+                    outputFps: document.getElementById('outputFps'),
+
+                    virtualCameraGroup: document.getElementById('virtualCameraGroup'),
+                    startVirtualCameraBtn: document.getElementById('startVirtualCameraBtn'),
+                    stopVirtualCameraBtn: document.getElementById('stopVirtualCameraBtn'),
+                    virtualCameraStatus: document.getElementById('virtualCameraStatus'),
+                    virtualCameraResolution: document.getElementById('virtualCameraResolution')
                 };
 
                 this.ctx = this.elements.processedCanvas.getContext('2d');
@@ -416,6 +438,13 @@
                 this.elements.stopCameraBtn.addEventListener('click', () => this.stopCamera());
                 this.elements.startProcessingBtn.addEventListener('click', () => this.startProcessing());
                 this.elements.stopProcessingBtn.addEventListener('click', () => this.stopProcessing());
+
+                // Virtual camera controls (only in desktop app)
+                if (this.elements.startVirtualCameraBtn) {
+                    this.elements.startVirtualCameraBtn.addEventListener('click', () => this.startVirtualCamera());
+                    this.elements.stopVirtualCameraBtn.addEventListener('click', () => this.stopVirtualCamera());
+                    this.elements.virtualCameraResolution.addEventListener('change', (e) => this.changeVirtualCameraResolution(e.target.value));
+                }
             }
 
             setupDragAndDrop() {
@@ -622,10 +651,32 @@
                     const img = new Image();
                     img.onload = () => {
                         this.ctx.drawImage(img, 0, 0, this.elements.processedCanvas.width, this.elements.processedCanvas.height);
+
+                        // Send frame to virtual camera if active and in desktop app
+                        if (this.isDesktopApp && this.virtualCameraActive && window.virtualCamera) {
+                            this.sendFrameToVirtualCamera();
+                        }
                     };
                     img.src = e.target.result;
                 };
                 reader.readAsDataURL(blob);
+            }
+
+            async sendFrameToVirtualCamera() {
+                try {
+                    if (!this.virtualCameraActive || !window.virtualCamera) {
+                        return;
+                    }
+
+                    // Get canvas data as base64 image
+                    const canvas = this.elements.processedCanvas;
+                    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+
+                    // Send to virtual camera
+                    await window.virtualCamera.sendFrame(imageData);
+                } catch (error) {
+                    console.error('Failed to send frame to virtual camera:', error);
+                }
             }
 
             startStatsUpdate() {
@@ -655,6 +706,89 @@
             updateUploadStatus(message, type = 'info') {
                 this.elements.uploadStatus.textContent = message;
                 this.elements.uploadStatus.className = `status ${type}`;
+            }
+
+            detectDesktopApp() {
+                // Check if running in Electron desktop app
+                if (window.isDesktopApp || (typeof window !== 'undefined' && window.electronAPI)) {
+                    this.isDesktopApp = true;
+                    this.elements.virtualCameraGroup.style.display = 'block';
+                    console.log('Desktop app detected - Virtual camera controls enabled');
+                } else {
+                    this.isDesktopApp = false;
+                    console.log('Web browser detected - Virtual camera controls disabled');
+                }
+            }
+
+            async startVirtualCamera() {
+                if (!this.isDesktopApp || !window.virtualCamera) {
+                    this.updateVirtualCameraStatus('Virtual camera only available in desktop app', 'error');
+                    return;
+                }
+
+                try {
+                    this.updateVirtualCameraStatus('Starting virtual camera...', 'info');
+                    const result = await window.virtualCamera.start();
+
+                    if (result.success) {
+                        this.updateVirtualCameraStatus(`✓ ${result.message}`, 'success');
+                        this.elements.startVirtualCameraBtn.disabled = true;
+                        this.elements.stopVirtualCameraBtn.disabled = false;
+                        this.virtualCameraActive = true;
+                    } else {
+                        this.updateVirtualCameraStatus(`✗ ${result.error}`, 'error');
+                    }
+                } catch (error) {
+                    this.updateVirtualCameraStatus(`✗ Failed to start virtual camera: ${error.message}`, 'error');
+                }
+            }
+
+            async stopVirtualCamera() {
+                if (!this.isDesktopApp || !window.virtualCamera) {
+                    return;
+                }
+
+                try {
+                    this.updateVirtualCameraStatus('Stopping virtual camera...', 'info');
+                    const result = await window.virtualCamera.stop();
+
+                    if (result.success) {
+                        this.updateVirtualCameraStatus(`✓ ${result.message}`, 'success');
+                        this.elements.startVirtualCameraBtn.disabled = false;
+                        this.elements.stopVirtualCameraBtn.disabled = true;
+                        this.virtualCameraActive = false;
+                    } else {
+                        this.updateVirtualCameraStatus(`✗ ${result.error}`, 'error');
+                    }
+                } catch (error) {
+                    this.updateVirtualCameraStatus(`✗ Failed to stop virtual camera: ${error.message}`, 'error');
+                }
+            }
+
+            async changeVirtualCameraResolution(resolution) {
+                if (!this.isDesktopApp || !window.electronAPI) {
+                    return;
+                }
+
+                const [width, height] = resolution.split('x').map(n => parseInt(n));
+
+                try {
+                    const result = await window.electronAPI.setVirtualCameraResolution(width, height);
+                    if (result.success) {
+                        this.updateVirtualCameraStatus(`✓ Resolution changed to ${resolution}`, 'success');
+                    } else {
+                        this.updateVirtualCameraStatus(`✗ ${result.error}`, 'error');
+                    }
+                } catch (error) {
+                    this.updateVirtualCameraStatus(`✗ Failed to change resolution: ${error.message}`, 'error');
+                }
+            }
+
+            updateVirtualCameraStatus(message, type = 'info') {
+                if (this.elements.virtualCameraStatus) {
+                    this.elements.virtualCameraStatus.textContent = message;
+                    this.elements.virtualCameraStatus.className = `status ${type}`;
+                }
             }
         }
 
