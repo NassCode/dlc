@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Selection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1e3c72;
+            color: white;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .camera-test {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        select, button {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 5px;
+            min-width: 200px;
+        }
+
+        button {
+            cursor: pointer;
+            background: #4ecdc4;
+        }
+
+        button:hover {
+            background: #44a08d;
+        }
+
+        video {
+            width: 100%;
+            max-width: 400px;
+            height: 300px;
+            background: #000;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+
+        .camera-info {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 14px;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+
+        .status.success {
+            background: rgba(76, 175, 80, 0.3);
+        }
+
+        .status.error {
+            background: rgba(244, 67, 54, 0.3);
+        }
+
+        .status.info {
+            background: rgba(33, 150, 243, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📷 Camera Selection Test</h1>
+        <p>This test page verifies that camera enumeration and selection works correctly for Deep Live Cam.</p>
+
+        <div class="camera-test">
+            <h3>Available Cameras</h3>
+            <button onclick="enumerateCameras()">🔍 Detect Cameras</button>
+            <div id="status" class="status info">Click "Detect Cameras" to start</div>
+
+            <div id="cameraSelection" style="display: none;">
+                <h4>Select Camera Source:</h4>
+                <select id="cameraSelect" onchange="switchCamera()">
+                    <option value="">Select a camera...</option>
+                </select>
+                <button onclick="startCamera()">▶️ Start Selected Camera</button>
+                <button onclick="stopCamera()">⏹️ Stop Camera</button>
+            </div>
+
+            <video id="testVideo" autoplay muted></video>
+
+            <div id="cameraInfo" class="camera-info" style="display: none;"></div>
+        </div>
+
+        <div class="camera-test">
+            <h3>Camera Types Expected</h3>
+            <ul>
+                <li>📷 <strong>Device Webcam</strong>: Your built-in or USB camera</li>
+                <li>📹 <strong>OBS Virtual Camera</strong>: If OBS Studio is running virtual camera</li>
+                <li>🎭 <strong>Other Virtual Cameras</strong>: Any third-party virtual cameras</li>
+            </ul>
+            <p><strong>Note:</strong> Deep Live Cam works best with your device webcam as the source, then applies face swapping to create the output stream.</p>
+        </div>
+    </div>
+
+    <script>
+        let currentStream = null;
+        let availableCameras = [];
+
+        function updateStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        async function enumerateCameras() {
+            try {
+                updateStatus('🔍 Detecting cameras...', 'info');
+
+                // Request permissions first
+                const permissionStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                permissionStream.getTracks().forEach(track => track.stop());
+
+                // Get all video devices
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                availableCameras = devices.filter(device => device.kind === 'videoinput');
+
+                updateStatus(`✅ Found ${availableCameras.length} camera(s)`, 'success');
+
+                // Populate camera selection
+                populateCameraSelect();
+                document.getElementById('cameraSelection').style.display = 'block';
+
+            } catch (error) {
+                updateStatus(`❌ Camera detection failed: ${error.message}`, 'error');
+                console.error('Camera enumeration error:', error);
+            }
+        }
+
+        function populateCameraSelect() {
+            const select = document.getElementById('cameraSelect');
+            select.innerHTML = '<option value="">Select a camera...</option>';
+
+            availableCameras.forEach((camera, index) => {
+                const option = document.createElement('option');
+                option.value = camera.deviceId;
+
+                let cameraName = camera.label || `Camera ${index + 1}`;
+                let cameraIcon = '📹';
+
+                // Add descriptive icons based on camera type
+                if (cameraName.toLowerCase().includes('obs')) {
+                    cameraIcon = '📹';
+                    cameraName += ' (OBS Virtual)';
+                } else if (cameraName.toLowerCase().includes('virtual')) {
+                    cameraIcon = '🎭';
+                    cameraName += ' (Virtual)';
+                } else if (cameraName.toLowerCase().includes('webcam') ||
+                          cameraName.toLowerCase().includes('camera') ||
+                          cameraName.toLowerCase().includes('integrated')) {
+                    cameraIcon = '📷';
+                    cameraName += ' (Device Webcam)';
+                }
+
+                option.textContent = `${cameraIcon} ${cameraName}`;
+                select.appendChild(option);
+            });
+
+            // Display camera details
+            displayCameraInfo();
+        }
+
+        function displayCameraInfo() {
+            const infoEl = document.getElementById('cameraInfo');
+            let infoHtml = '<h4>Camera Details:</h4>';
+
+            availableCameras.forEach((camera, index) => {
+                infoHtml += `
+                    <div style="margin: 5px 0; padding: 5px; background: rgba(255,255,255,0.1); border-radius: 3px;">
+                        <strong>Camera ${index + 1}:</strong> ${camera.label || 'Unknown Camera'}<br>
+                        <strong>Device ID:</strong> ${camera.deviceId}<br>
+                        <strong>Group ID:</strong> ${camera.groupId || 'N/A'}
+                    </div>
+                `;
+            });
+
+            infoEl.innerHTML = infoHtml;
+            infoEl.style.display = 'block';
+        }
+
+        async function startCamera() {
+            const selectedCameraId = document.getElementById('cameraSelect').value;
+
+            if (!selectedCameraId) {
+                updateStatus('⚠️ Please select a camera first', 'error');
+                return;
+            }
+
+            try {
+                // Stop any existing stream
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                }
+
+                updateStatus('🎬 Starting camera...', 'info');
+
+                const constraints = {
+                    video: {
+                        deviceId: { exact: selectedCameraId },
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                };
+
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                document.getElementById('testVideo').srcObject = currentStream;
+
+                // Get camera info
+                const videoTrack = currentStream.getVideoTracks()[0];
+                const settings = videoTrack.getSettings();
+                const selectedCamera = availableCameras.find(c => c.deviceId === selectedCameraId);
+
+                updateStatus(`✅ Camera started: ${selectedCamera?.label || 'Unknown Camera'}`, 'success');
+
+                // Display stream info
+                console.log('Camera settings:', settings);
+                console.log('Video track:', videoTrack);
+
+            } catch (error) {
+                updateStatus(`❌ Failed to start camera: ${error.message}`, 'error');
+                console.error('Camera start error:', error);
+            }
+        }
+
+        function stopCamera() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+                document.getElementById('testVideo').srcObject = null;
+                updateStatus('⏹️ Camera stopped', 'info');
+            }
+        }
+
+        function switchCamera() {
+            const selectedCameraId = document.getElementById('cameraSelect').value;
+            if (selectedCameraId && currentStream) {
+                // If camera is running, restart with new selection
+                startCamera();
+            }
+        }
+
+        // Auto-start camera enumeration when page loads
+        window.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                enumerateCameras();
+            }, 500);
+        });
+    </script>
+</body>
+</html>

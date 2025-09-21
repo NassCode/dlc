@@ -1,12 +1,15 @@
 const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
 const path = require('path');
 const VirtualCameraManager = require('./virtual-camera');
+const OptimizedVirtualCameraManager = require('./virtual-camera-optimized');
 
 class DeepLiveCamApp {
     constructor() {
         this.mainWindow = null;
         this.virtualCamera = new VirtualCameraManager();
+        this.optimizedVirtualCamera = new OptimizedVirtualCameraManager();
         this.isDev = process.argv.includes('--dev');
+        this.useOptimized = process.argv.includes('--optimized') || this.isDev;
 
         this.initializeApp();
     }
@@ -47,7 +50,7 @@ class DeepLiveCamApp {
                 contextIsolation: true,
                 enableRemoteModule: false,
                 webSecurity: false,
-                preload: path.join(__dirname, 'preload.js')
+                preload: path.join(__dirname, this.useOptimized ? 'preload-optimized.js' : 'preload.js')
             },
             icon: path.join(__dirname, 'assets', 'icon.png'),
             title: 'Deep Live Cam Desktop',
@@ -55,7 +58,8 @@ class DeepLiveCamApp {
         });
 
         // Load the client HTML
-        const clientPath = path.join(__dirname, '..', 'local-client', 'client.html');
+        const clientFile = this.useOptimized ? 'client-optimized.html' : 'client.html';
+        const clientPath = path.join(__dirname, '..', 'local-client', clientFile);
         this.mainWindow.loadFile(clientPath);
 
         // Show window when ready
@@ -166,7 +170,7 @@ class DeepLiveCamApp {
     }
 
     setupIPC() {
-        // Virtual camera IPC handlers
+        // Original Virtual camera IPC handlers
         ipcMain.handle('start-virtual-camera', async () => {
             return await this.startVirtualCamera();
         });
@@ -185,6 +189,52 @@ class DeepLiveCamApp {
 
         ipcMain.handle('get-virtual-camera-status', async () => {
             return this.virtualCamera.getStatus();
+        });
+
+        // Optimized Virtual camera IPC handlers
+        ipcMain.handle('start-virtual-camera-optimized', async () => {
+            return await this.startOptimizedVirtualCamera();
+        });
+
+        ipcMain.handle('stop-virtual-camera-optimized', async () => {
+            return await this.stopOptimizedVirtualCamera();
+        });
+
+        ipcMain.handle('send-frame-virtual-camera-optimized', async (event, frameData) => {
+            return await this.sendFrameToOptimizedVirtualCamera(frameData);
+        });
+
+        ipcMain.handle('set-virtual-camera-resolution-optimized', async (event, width, height) => {
+            return await this.setOptimizedVirtualCameraResolution(width, height);
+        });
+
+        ipcMain.handle('get-virtual-camera-status-optimized', async () => {
+            return this.optimizedVirtualCamera.getStatus();
+        });
+
+        ipcMain.handle('get-stream-url', async () => {
+            return this.optimizedVirtualCamera.getStreamUrl();
+        });
+
+        ipcMain.handle('get-performance-stats', async () => {
+            return this.optimizedVirtualCamera.getPerformanceStats();
+        });
+
+        // Optimized processing utilities
+        ipcMain.handle('convert-image-format', async (event, imageData, format, quality) => {
+            return await this.convertImageFormat(imageData, format, quality);
+        });
+
+        ipcMain.handle('compress-image', async (event, imageData, quality, maxWidth, maxHeight) => {
+            return await this.compressImage(imageData, quality, maxWidth, maxHeight);
+        });
+
+        ipcMain.handle('get-optimal-frame-rate', async (event, processingTime, targetFps) => {
+            return this.getOptimalFrameRate(processingTime, targetFps);
+        });
+
+        ipcMain.handle('get-memory-usage', async () => {
+            return process.memoryUsage();
         });
 
         // Dialog handlers
@@ -213,6 +263,64 @@ class DeepLiveCamApp {
 
     async setVirtualCameraResolution(width, height) {
         return await this.virtualCamera.setResolution(width, height);
+    }
+
+    // Optimized Virtual Camera Methods
+    async startOptimizedVirtualCamera() {
+        return await this.optimizedVirtualCamera.start();
+    }
+
+    async stopOptimizedVirtualCamera() {
+        return await this.optimizedVirtualCamera.stop();
+    }
+
+    async sendFrameToOptimizedVirtualCamera(frameData) {
+        return await this.optimizedVirtualCamera.sendFrame(frameData);
+    }
+
+    async setOptimizedVirtualCameraResolution(width, height) {
+        return await this.optimizedVirtualCamera.setResolution(width, height);
+    }
+
+    // Optimized Processing Utilities
+    async convertImageFormat(imageData, format, quality) {
+        // Simplified implementation - in production, use a proper image processing library
+        try {
+            return {
+                success: true,
+                data: imageData, // Placeholder
+                format: format
+            };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async compressImage(imageData, quality, maxWidth, maxHeight) {
+        // Simplified implementation - in production, use sharp or similar
+        try {
+            return {
+                success: true,
+                data: imageData, // Placeholder
+                originalSize: imageData.length,
+                compressedSize: Math.floor(imageData.length * quality)
+            };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    getOptimalFrameRate(processingTime, targetFps) {
+        // Calculate optimal frame rate based on processing time
+        const maxFrameTime = 1000 / targetFps;
+        const optimalFps = Math.min(targetFps, Math.floor(1000 / (processingTime * 1.5)));
+
+        return {
+            optimalFps: Math.max(10, optimalFps), // Minimum 10 FPS
+            recommended: processingTime < maxFrameTime * 0.5 ? targetFps : Math.floor(targetFps * 0.8),
+            canIncrease: processingTime < maxFrameTime * 0.3,
+            shouldDecrease: processingTime > maxFrameTime * 0.8
+        };
     }
 
     async openSourceImage() {
@@ -251,6 +359,10 @@ class DeepLiveCamApp {
     cleanup() {
         if (this.virtualCamera && this.virtualCamera.getStatus().isActive) {
             this.stopVirtualCamera();
+        }
+
+        if (this.optimizedVirtualCamera && this.optimizedVirtualCamera.getStatus().isActive) {
+            this.stopOptimizedVirtualCamera();
         }
     }
 }

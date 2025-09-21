@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deep Live Cam - Optimized Client</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: white;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .performance-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            z-index: 1000;
+            min-width: 200px;
+        }
+
+        .perf-good { color: #4CAF50; }
+        .perf-warning { color: #FF9800; }
+        .perf-error { color: #f44336; }
+
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .control-group {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        .control-group h3 {
+            margin-bottom: 15px;
+            color: #4ecdc4;
+        }
+
+        .server-config {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+
+        .server-config input {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            font-size: 14px;
+        }
+
+        .server-config input::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            margin: 5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a6f);
+            color: white;
+        }
+
+        .btn-success {
+            background: linear-gradient(45deg, #4ecdc4, #44a08d);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        button:disabled {
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.5);
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .upload-area {
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            margin: 15px 0;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .upload-area:hover,
+        .upload-area.dragover {
+            border-color: #4ecdc4;
+            background: rgba(78, 205, 196, 0.1);
+        }
+
+        .upload-area input[type="file"] {
+            display: none;
+        }
+
+        .upload-preview {
+            max-width: 150px;
+            max-height: 150px;
+            border-radius: 8px;
+            margin: 10px auto;
+            display: none;
+        }
+
+        .status {
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #4ecdc4;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+
+        .status.error {
+            border-left-color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.1);
+        }
+
+        .status.success {
+            border-left-color: #4ecdc4;
+            background: rgba(78, 205, 196, 0.1);
+        }
+
+        .video-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .video-box {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 15px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .video-box h3 {
+            text-align: center;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            margin: 0;
+        }
+
+        video, canvas {
+            width: 100%;
+            height: 400px;
+            object-fit: cover;
+            background: #000;
+        }
+
+        .fps-counter {
+            position: absolute;
+            top: 50px;
+            right: 15px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .connection-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ff6b6b;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        .connection-indicator.connected {
+            background: #4ecdc4;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-box {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #4ecdc4;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+
+        .optimization-controls {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .optimization-controls label {
+            font-size: 14px;
+            margin-right: 10px;
+        }
+
+        .optimization-controls select,
+        .optimization-controls input[type="range"] {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+        }
+
+        .camera-source-selection {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .camera-source-selection label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #4ecdc4;
+        }
+
+        #cameraSelect {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        #cameraSelect option {
+            background: #1e3c72;
+            color: white;
+            padding: 5px;
+        }
+
+        @media (max-width: 768px) {
+            .controls {
+                grid-template-columns: 1fr;
+            }
+
+            .video-container {
+                grid-template-columns: 1fr;
+            }
+
+            .server-config {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Performance Indicator -->
+    <div id="performanceIndicator" class="performance-indicator">
+        <div>FPS: <span id="perfFps" class="perf-good">0</span></div>
+        <div>Latency: <span id="perfLatency" class="perf-good">0ms</span></div>
+        <div>Frame Drop: <span id="perfDropRate" class="perf-good">0%</span></div>
+        <div>Processing: <span id="perfProcessing" class="perf-good">0ms</span></div>
+        <div>Memory: <span id="perfMemory" class="perf-good">0MB</span></div>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1>🎭 Deep Live Cam - Optimized</h1>
+            <p>Low-latency real-time AI face swapping</p>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <h3>🌐 Server Connection</h3>
+                <div class="server-config">
+                    <input type="text" id="serverUrl" placeholder="Server URL (e.g., ws://localhost:8000)"
+                           value="ws://localhost:8000">
+                    <button class="btn-primary" id="connectBtn">
+                        <span class="connection-indicator" id="connectionIndicator"></span>
+                        Connect
+                    </button>
+                </div>
+                <button class="btn-secondary" id="testConnectionBtn">Test Connection</button>
+                <div class="status" id="connectionStatus">Ready to connect...</div>
+            </div>
+
+            <div class="control-group">
+                <h3>📸 Source Image</h3>
+                <div class="upload-area" id="uploadArea">
+                    <input type="file" id="sourceImage" accept="image/*">
+                    <div class="upload-content">
+                        <p>📁 Choose file or drag & drop</p>
+                        <p style="font-size: 0.8em; opacity: 0.7;">Select face to apply to camera feed</p>
+                    </div>
+                    <img class="upload-preview" id="imagePreview" alt="Preview">
+                </div>
+                <div class="status" id="uploadStatus">No source image selected</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <h3>📹 Camera Controls</h3>
+
+                <!-- Camera Source Selection -->
+                <div class="camera-source-selection">
+                    <label for="cameraSelect">📷 Camera Source:</label>
+                    <select id="cameraSelect" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px; border-radius: 5px; margin: 10px 0; width: 100%;">
+                        <option value="">🔍 Detecting cameras...</option>
+                    </select>
+                    <button class="btn-secondary" id="refreshCamerasBtn">🔄 Refresh Cameras</button>
+                </div>
+
+                <div style="margin: 15px 0;">
+                    <button class="btn-success" id="startCameraBtn">Start Camera</button>
+                    <button class="btn-secondary" id="stopCameraBtn" disabled>Stop Camera</button>
+                    <button class="btn-primary" id="startProcessingBtn" disabled>Start Processing</button>
+                    <button class="btn-secondary" id="stopProcessingBtn" disabled>Stop Processing</button>
+                </div>
+
+                <div class="optimization-controls">
+                    <label>Quality:</label>
+                    <select id="qualitySelect">
+                        <option value="0.6">Fast (60%)</option>
+                        <option value="0.8" selected>Balanced (80%)</option>
+                        <option value="0.9">High (90%)</option>
+                    </select>
+
+                    <label>Target FPS:</label>
+                    <input type="range" id="fpsSlider" min="15" max="60" value="30">
+                    <span id="fpsValue">30</span>
+                </div>
+            </div>
+
+            <div class="control-group" id="virtualCameraGroup" style="display: none;">
+                <h3>🎭 Virtual Camera - Optimized</h3>
+                <button class="btn-success" id="startVirtualCameraBtn">Start Virtual Camera</button>
+                <button class="btn-secondary" id="stopVirtualCameraBtn" disabled>Stop Virtual Camera</button>
+                <button class="btn-primary" id="openStreamBtn" disabled>Open Stream in Browser</button>
+                <div class="status" id="virtualCameraStatus">Virtual camera ready</div>
+                <div style="margin-top: 10px;">
+                    <label style="font-size: 0.9em; opacity: 0.8;">Output Resolution:</label>
+                    <select id="virtualCameraResolution" style="margin-left: 10px; padding: 5px; border-radius: 5px; background: rgba(255,255,255,0.2); color: white; border: none;">
+                        <option value="640x480">640 x 480</option>
+                        <option value="1280x720">1280 x 720 (HD)</option>
+                        <option value="1920x1080">1920 x 1080 (Full HD)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>📊 Performance Statistics</h3>
+                <div class="stats">
+                    <div class="stat-box">
+                        <div class="stat-value" id="fpsValue">0</div>
+                        <div class="stat-label">FPS</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" id="latencyValue">0</div>
+                        <div class="stat-label">Latency (ms)</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" id="framesValue">0</div>
+                        <div class="stat-label">Frames Processed</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" id="dropRateValue">0</div>
+                        <div class="stat-label">Drop Rate (%)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="video-container">
+            <div class="video-box">
+                <h3>📷 Camera Input</h3>
+                <video id="localVideo" autoplay muted></video>
+                <div class="fps-counter" id="inputFps">0 FPS</div>
+            </div>
+            <div class="video-box">
+                <h3>🎭 Processed Output</h3>
+                <canvas id="processedCanvas"></canvas>
+                <div class="fps-counter" id="outputFps">0 FPS</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class OptimizedDeepLiveCamClient {
+            constructor() {
+                this.websocket = null;
+                this.mediaStream = null;
+                this.isProcessing = false;
+                this.serverUrl = 'ws://localhost:8000';
+
+                // Optimized settings
+                this.settings = {
+                    quality: 0.8,
+                    targetFps: 30,
+                    adaptiveFps: true,
+                    frameSkipping: true,
+                    bufferSize: 2,
+                    selectedCameraId: null
+                };
+
+                // Camera management
+                this.availableCameras = [];
+                this.currentCameraId = null;
+
+                // Performance tracking
+                this.stats = {
+                    fps: 0,
+                    latency: 0,
+                    framesProcessed: 0,
+                    framesDropped: 0,
+                    lastFrameTime: 0,
+                    processingTimes: [],
+                    memoryUsage: 0
+                };
+
+                // Frame management
+                this.frameBuffer = [];
+                this.processingQueue = [];
+                this.lastProcessTime = 0;
+                this.adaptiveFrameInterval = 33; // Start with 30 FPS
+
+                this.initializeElements();
+                this.setupEventListeners();
+                this.startStatsUpdate();
+                this.detectDesktopApp();
+                this.startPerformanceMonitoring();
+                this.enumerateCameras();
+            }
+
+            initializeElements() {
+                // Get DOM elements
+                this.elements = {
+                    serverUrl: document.getElementById('serverUrl'),
+                    connectBtn: document.getElementById('connectBtn'),
+                    testConnectionBtn: document.getElementById('testConnectionBtn'),
+                    connectionStatus: document.getElementById('connectionStatus'),
+                    connectionIndicator: document.getElementById('connectionIndicator'),
+
+                    uploadArea: document.getElementById('uploadArea'),
+                    sourceImage: document.getElementById('sourceImage'),
+                    imagePreview: document.getElementById('imagePreview'),
+                    uploadStatus: document.getElementById('uploadStatus'),
+
+                    startCameraBtn: document.getElementById('startCameraBtn'),
+                    stopCameraBtn: document.getElementById('stopCameraBtn'),
+                    startProcessingBtn: document.getElementById('startProcessingBtn'),
+                    stopProcessingBtn: document.getElementById('stopProcessingBtn'),
+
+                    qualitySelect: document.getElementById('qualitySelect'),
+                    fpsSlider: document.getElementById('fpsSlider'),
+                    fpsValue: document.getElementById('fpsValue'),
+
+                    // Camera selection elements
+                    cameraSelect: document.getElementById('cameraSelect'),
+                    refreshCamerasBtn: document.getElementById('refreshCamerasBtn'),
+
+                    localVideo: document.getElementById('localVideo'),
+                    processedCanvas: document.getElementById('processedCanvas'),
+
+                    fpsValue: document.getElementById('fpsValue'),
+                    latencyValue: document.getElementById('latencyValue'),
+                    framesValue: document.getElementById('framesValue'),
+                    dropRateValue: document.getElementById('dropRateValue'),
+                    inputFps: document.getElementById('inputFps'),
+                    outputFps: document.getElementById('outputFps'),
+
+                    virtualCameraGroup: document.getElementById('virtualCameraGroup'),
+                    startVirtualCameraBtn: document.getElementById('startVirtualCameraBtn'),
+                    stopVirtualCameraBtn: document.getElementById('stopVirtualCameraBtn'),
+                    openStreamBtn: document.getElementById('openStreamBtn'),
+                    virtualCameraStatus: document.getElementById('virtualCameraStatus'),
+                    virtualCameraResolution: document.getElementById('virtualCameraResolution'),
+
+                    // Performance indicators
+                    perfFps: document.getElementById('perfFps'),
+                    perfLatency: document.getElementById('perfLatency'),
+                    perfDropRate: document.getElementById('perfDropRate'),
+                    perfProcessing: document.getElementById('perfProcessing'),
+                    perfMemory: document.getElementById('perfMemory')
+                };
+
+                this.ctx = this.elements.processedCanvas.getContext('2d');
+                this.elements.processedCanvas.width = 640;
+                this.elements.processedCanvas.height = 480;
+
+                // Create offscreen canvas for optimized processing
+                this.offscreenCanvas = new OffscreenCanvas(640, 480);
+                this.offscreenCtx = this.offscreenCanvas.getContext('2d');
+            }
+
+            setupEventListeners() {
+                // Server connection
+                this.elements.connectBtn.addEventListener('click', () => this.toggleConnection());
+                this.elements.testConnectionBtn.addEventListener('click', () => this.testConnection());
+                this.elements.serverUrl.addEventListener('change', (e) => {
+                    this.serverUrl = e.target.value;
+                });
+
+                // Optimization controls
+                this.elements.qualitySelect.addEventListener('change', (e) => {
+                    this.settings.quality = parseFloat(e.target.value);
+                });
+
+                this.elements.fpsSlider.addEventListener('input', (e) => {
+                    this.settings.targetFps = parseInt(e.target.value);
+                    this.elements.fpsValue.textContent = this.settings.targetFps;
+                    this.adaptiveFrameInterval = 1000 / this.settings.targetFps;
+                });
+
+                // File upload
+                this.elements.sourceImage.addEventListener('change', () => this.handleImageUpload());
+                this.setupDragAndDrop();
+
+                // Camera selection
+                this.elements.cameraSelect.addEventListener('change', (e) => {
+                    this.settings.selectedCameraId = e.target.value;
+                    this.currentCameraId = e.target.value;
+
+                    // If camera is currently running, restart with new camera
+                    if (this.mediaStream && !this.mediaStream.ended) {
+                        this.restartCameraWithNewSource();
+                    }
+                });
+
+                this.elements.refreshCamerasBtn.addEventListener('click', () => this.enumerateCameras());
+
+                // Camera controls
+                this.elements.startCameraBtn.addEventListener('click', () => this.startCamera());
+                this.elements.stopCameraBtn.addEventListener('click', () => this.stopCamera());
+                this.elements.startProcessingBtn.addEventListener('click', () => this.startProcessing());
+                this.elements.stopProcessingBtn.addEventListener('click', () => this.stopProcessing());
+
+                // Virtual camera controls (only in desktop app)
+                if (this.elements.startVirtualCameraBtn) {
+                    this.elements.startVirtualCameraBtn.addEventListener('click', () => this.startVirtualCamera());
+                    this.elements.stopVirtualCameraBtn.addEventListener('click', () => this.stopVirtualCamera());
+                    this.elements.openStreamBtn.addEventListener('click', () => this.openStreamInBrowser());
+                    this.elements.virtualCameraResolution.addEventListener('change', (e) => this.changeVirtualCameraResolution(e.target.value));
+                }
+            }
+
+            setupDragAndDrop() {
+                const uploadArea = this.elements.uploadArea;
+
+                uploadArea.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.add('dragover');
+                });
+
+                uploadArea.addEventListener('dragleave', () => {
+                    uploadArea.classList.remove('dragover');
+                });
+
+                uploadArea.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.remove('dragover');
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        this.elements.sourceImage.files = files;
+                        this.handleImageUpload();
+                    }
+                });
+
+                uploadArea.addEventListener('click', () => {
+                    this.elements.sourceImage.click();
+                });
+            }
+
+            async testConnection() {
+                this.updateStatus('Testing connection...', 'info');
+
+                try {
+                    const httpUrl = this.serverUrl.replace('ws://', 'http://').replace('wss://', 'https://');
+                    const response = await fetch(`${httpUrl}/health`);
+                    const data = await response.json();
+
+                    this.updateStatus(`✓ Server is online - Mode: ${data.mode}, Clients: ${data.clients}`, 'success');
+                } catch (error) {
+                    this.updateStatus(`✗ Connection failed: ${error.message}`, 'error');
+                }
+            }
+
+            toggleConnection() {
+                if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                    this.disconnect();
+                } else {
+                    this.connect();
+                }
+            }
+
+            connect() {
+                try {
+                    this.updateStatus('Connecting to server...', 'info');
+                    this.websocket = new WebSocket(`${this.serverUrl}/ws`);
+
+                    this.websocket.onopen = () => {
+                        this.updateStatus('✓ Connected to server', 'success');
+                        this.elements.connectBtn.textContent = 'Disconnect';
+                        this.elements.connectionIndicator.classList.add('connected');
+                        this.elements.startProcessingBtn.disabled = false;
+                    };
+
+                    this.websocket.onmessage = (event) => {
+                        if (event.data instanceof Blob) {
+                            this.handleProcessedFrame(event.data);
+                        }
+                    };
+
+                    this.websocket.onclose = () => {
+                        this.updateStatus('Disconnected from server', 'error');
+                        this.elements.connectBtn.textContent = 'Connect';
+                        this.elements.connectionIndicator.classList.remove('connected');
+                        this.elements.startProcessingBtn.disabled = true;
+                        this.stopProcessing();
+                    };
+
+                    this.websocket.onerror = (error) => {
+                        this.updateStatus(`Connection error: ${error.message}`, 'error');
+                    };
+
+                } catch (error) {
+                    this.updateStatus(`Failed to connect: ${error.message}`, 'error');
+                }
+            }
+
+            disconnect() {
+                if (this.websocket) {
+                    this.websocket.close();
+                }
+                this.stopProcessing();
+            }
+
+            async handleImageUpload() {
+                const file = this.elements.sourceImage.files[0];
+                if (!file) return;
+
+                // Show preview
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    this.elements.imagePreview.src = e.target.result;
+                    this.elements.imagePreview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+
+                // Upload to server
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const httpUrl = this.serverUrl.replace('ws://', 'http://').replace('wss://', 'https://');
+                    const response = await fetch(`${httpUrl}/upload-source`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (response.ok) {
+                        this.updateUploadStatus('✓ Source image uploaded successfully', 'success');
+                    } else {
+                        const error = await response.text();
+                        this.updateUploadStatus(`✗ Upload failed: ${error}`, 'error');
+                    }
+                } catch (error) {
+                    this.updateUploadStatus(`✗ Upload error: ${error.message}`, 'error');
+                }
+            }
+
+            async enumerateCameras() {
+                try {
+                    this.updateStatus('🔍 Detecting available cameras...', 'info');
+
+                    // Request permissions first
+                    await navigator.mediaDevices.getUserMedia({ video: true });
+
+                    // Get all video input devices
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    this.availableCameras = devices.filter(device => device.kind === 'videoinput');
+
+                    // Update camera selection dropdown
+                    this.populateCameraSelect();
+
+                    this.updateStatus(`✓ Found ${this.availableCameras.length} camera(s)`, 'success');
+                } catch (error) {
+                    console.error('Failed to enumerate cameras:', error);
+                    this.updateStatus(`✗ Camera detection failed: ${error.message}`, 'error');
+                    this.availableCameras = [];
+                    this.populateCameraSelect();
+                }
+            }
+
+            populateCameraSelect() {
+                const select = this.elements.cameraSelect;
+                select.innerHTML = '';
+
+                if (this.availableCameras.length === 0) {
+                    const option = document.createElement('option');
+                    option.value = '';
+                    option.textContent = '❌ No cameras found';
+                    select.appendChild(option);
+                    return;
+                }
+
+                // Add cameras to dropdown
+                this.availableCameras.forEach((camera, index) => {
+                    const option = document.createElement('option');
+                    option.value = camera.deviceId;
+
+                    // Create descriptive camera name
+                    let cameraName = camera.label || `Camera ${index + 1}`;
+
+                    // Add camera type indicators
+                    if (cameraName.toLowerCase().includes('obs')) {
+                        cameraName = `📹 ${cameraName} (OBS Virtual)`;
+                    } else if (cameraName.toLowerCase().includes('virtual')) {
+                        cameraName = `🎭 ${cameraName} (Virtual)`;
+                    } else if (cameraName.toLowerCase().includes('webcam') || cameraName.toLowerCase().includes('camera')) {
+                        cameraName = `📷 ${cameraName} (Webcam)`;
+                    } else {
+                        cameraName = `📹 ${cameraName}`;
+                    }
+
+                    option.textContent = cameraName;
+
+                    // Select default camera (prefer real webcam over virtual)
+                    if (index === 0 || (!this.settings.selectedCameraId && !cameraName.includes('Virtual') && !cameraName.includes('OBS'))) {
+                        option.selected = true;
+                        this.settings.selectedCameraId = camera.deviceId;
+                        this.currentCameraId = camera.deviceId;
+                    }
+
+                    select.appendChild(option);
+                });
+
+                console.log(`📷 Available cameras:`, this.availableCameras.map(c => c.label || 'Unknown Camera'));
+            }
+
+            async startCamera() {
+                try {
+                    // Use selected camera or default
+                    const constraints = {
+                        video: {
+                            width: 640,
+                            height: 480,
+                            frameRate: { ideal: this.settings.targetFps }
+                        }
+                    };
+
+                    // Add device ID constraint if a specific camera is selected
+                    if (this.currentCameraId) {
+                        constraints.video.deviceId = { exact: this.currentCameraId };
+                    }
+
+                    this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    this.elements.localVideo.srcObject = this.mediaStream;
+
+                    // Get the actual camera being used
+                    const videoTrack = this.mediaStream.getVideoTracks()[0];
+                    const settings = videoTrack.getSettings();
+                    const usedCamera = this.availableCameras.find(c => c.deviceId === settings.deviceId);
+
+                    this.elements.startCameraBtn.disabled = true;
+                    this.elements.stopCameraBtn.disabled = false;
+
+                    const cameraName = usedCamera ? usedCamera.label || 'Unknown Camera' : 'Default Camera';
+                    this.updateStatus(`✓ Camera started: ${cameraName}`, 'success');
+                } catch (error) {
+                    this.updateStatus(`✗ Camera error: ${error.message}`, 'error');
+                    console.error('Camera start error:', error);
+                }
+            }
+
+            async restartCameraWithNewSource() {
+                if (!this.mediaStream) return;
+
+                try {
+                    this.updateStatus('🔄 Switching camera source...', 'info');
+
+                    // Stop current stream
+                    this.mediaStream.getTracks().forEach(track => track.stop());
+
+                    // Start with new camera
+                    await this.startCamera();
+                } catch (error) {
+                    this.updateStatus(`✗ Camera switch failed: ${error.message}`, 'error');
+                }
+            }
+
+            stopCamera() {
+                if (this.mediaStream) {
+                    this.mediaStream.getTracks().forEach(track => track.stop());
+                    this.mediaStream = null;
+                }
+                this.elements.localVideo.srcObject = null;
+                this.elements.startCameraBtn.disabled = false;
+                this.elements.stopCameraBtn.disabled = true;
+                this.stopProcessing();
+                this.updateStatus('Camera stopped', 'info');
+            }
+
+            startProcessing() {
+                if (!this.mediaStream || !this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+                    this.updateStatus('✗ Need camera and server connection', 'error');
+                    return;
+                }
+
+                this.isProcessing = true;
+                this.elements.startProcessingBtn.disabled = true;
+                this.elements.stopProcessingBtn.disabled = false;
+                this.updateStatus('✓ Optimized processing started', 'success');
+                this.processFramesOptimized();
+            }
+
+            stopProcessing() {
+                this.isProcessing = false;
+                this.elements.startProcessingBtn.disabled = false;
+                this.elements.stopProcessingBtn.disabled = true;
+                this.updateStatus('Processing stopped', 'info');
+            }
+
+            processFramesOptimized() {
+                if (!this.isProcessing) return;
+
+                const now = Date.now();
+                const timeSinceLastFrame = now - this.lastProcessTime;
+
+                // Adaptive frame rate control
+                if (timeSinceLastFrame < this.adaptiveFrameInterval * 0.9) {
+                    // Skip frame if we're ahead of schedule
+                    requestAnimationFrame(() => this.processFramesOptimized());
+                    return;
+                }
+
+                const processStart = performance.now();
+
+                // Use offscreen canvas for better performance
+                this.offscreenCtx.drawImage(this.elements.localVideo, 0, 0, 640, 480);
+
+                // Convert to blob asynchronously
+                this.offscreenCanvas.convertToBlob({
+                    type: 'image/jpeg',
+                    quality: this.settings.quality
+                }).then(blob => {
+                    if (blob && this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                        this.stats.lastFrameTime = Date.now();
+                        this.websocket.send(blob);
+                        this.stats.framesProcessed++;
+
+                        // Track processing time
+                        const processTime = performance.now() - processStart;
+                        this.stats.processingTimes.push(processTime);
+                        if (this.stats.processingTimes.length > 10) {
+                            this.stats.processingTimes.shift();
+                        }
+
+                        // Adaptive frame rate adjustment
+                        this.adjustFrameRate(processTime);
+                    }
+
+                    this.lastProcessTime = now;
+
+                    // Schedule next frame
+                    requestAnimationFrame(() => this.processFramesOptimized());
+                }).catch(error => {
+                    console.error('Frame processing error:', error);
+                    this.stats.framesDropped++;
+                    requestAnimationFrame(() => this.processFramesOptimized());
+                });
+            }
+
+            adjustFrameRate(processingTime) {
+                if (!this.settings.adaptiveFps) return;
+
+                // If processing is taking too long, reduce frame rate
+                const targetFrameTime = 1000 / this.settings.targetFps;
+
+                if (processingTime > targetFrameTime * 0.8) {
+                    // Increase interval (lower FPS)
+                    this.adaptiveFrameInterval = Math.min(
+                        this.adaptiveFrameInterval * 1.1,
+                        1000 / 15 // Don't go below 15 FPS
+                    );
+                } else if (processingTime < targetFrameTime * 0.5) {
+                    // Decrease interval (higher FPS)
+                    this.adaptiveFrameInterval = Math.max(
+                        this.adaptiveFrameInterval * 0.95,
+                        1000 / this.settings.targetFps
+                    );
+                }
+            }
+
+            handleProcessedFrame(blob) {
+                const now = Date.now();
+                const latency = now - this.stats.lastFrameTime;
+                this.stats.latency = latency;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        this.ctx.drawImage(img, 0, 0, this.elements.processedCanvas.width, this.elements.processedCanvas.height);
+
+                        // AUTOMATICALLY send processed frame to virtual camera for streaming
+                        if (this.isDesktopApp && this.virtualCameraActive && window.virtualCamera) {
+                            this.sendFrameToVirtualCameraOptimized(blob);
+                        }
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(blob);
+            }
+
+            async sendFrameToVirtualCameraOptimized(blob) {
+                try {
+                    if (!this.virtualCameraActive || !window.virtualCamera) {
+                        return;
+                    }
+
+                    // Send blob directly instead of converting to base64
+                    const arrayBuffer = await blob.arrayBuffer();
+                    await window.virtualCamera.sendFrame(arrayBuffer);
+                } catch (error) {
+                    console.error('Failed to send frame to virtual camera:', error);
+                }
+            }
+
+            startStatsUpdate() {
+                setInterval(() => {
+                    // Calculate FPS
+                    const now = Date.now();
+                    if (this.lastStatsUpdate) {
+                        const timeDiff = now - this.lastStatsUpdate;
+                        this.stats.fps = Math.round((this.stats.framesProcessed - this.lastFrameCount) * 1000 / timeDiff);
+                    }
+                    this.lastStatsUpdate = now;
+                    this.lastFrameCount = this.stats.framesProcessed;
+
+                    // Calculate drop rate
+                    const totalFrames = this.stats.framesProcessed + this.stats.framesDropped;
+                    const dropRate = totalFrames > 0 ? (this.stats.framesDropped / totalFrames * 100).toFixed(1) : 0;
+
+                    // Update UI
+                    this.elements.fpsValue.textContent = this.stats.fps;
+                    this.elements.latencyValue.textContent = this.stats.latency;
+                    this.elements.framesValue.textContent = this.stats.framesProcessed;
+                    this.elements.dropRateValue.textContent = dropRate;
+
+                    // Update performance indicators
+                    this.updatePerformanceIndicators();
+                }, 1000);
+            }
+
+            updatePerformanceIndicators() {
+                const fps = this.stats.fps;
+                const latency = this.stats.latency;
+                const dropRate = parseFloat(this.elements.dropRateValue.textContent);
+                const avgProcessing = this.stats.processingTimes.length > 0 ?
+                    this.stats.processingTimes.reduce((a, b) => a + b, 0) / this.stats.processingTimes.length : 0;
+
+                // Update performance indicator colors
+                this.elements.perfFps.textContent = fps;
+                this.elements.perfFps.className = fps >= 25 ? 'perf-good' : fps >= 15 ? 'perf-warning' : 'perf-error';
+
+                this.elements.perfLatency.textContent = latency + 'ms';
+                this.elements.perfLatency.className = latency <= 100 ? 'perf-good' : latency <= 200 ? 'perf-warning' : 'perf-error';
+
+                this.elements.perfDropRate.textContent = dropRate.toFixed(1) + '%';
+                this.elements.perfDropRate.className = dropRate <= 5 ? 'perf-good' : dropRate <= 15 ? 'perf-warning' : 'perf-error';
+
+                this.elements.perfProcessing.textContent = avgProcessing.toFixed(1) + 'ms';
+                this.elements.perfProcessing.className = avgProcessing <= 20 ? 'perf-good' : avgProcessing <= 40 ? 'perf-warning' : 'perf-error';
+
+                // Memory usage (approximate)
+                if (performance.memory) {
+                    const memoryMB = (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1);
+                    this.elements.perfMemory.textContent = memoryMB + 'MB';
+                    this.elements.perfMemory.className = memoryMB <= 100 ? 'perf-good' : memoryMB <= 200 ? 'perf-warning' : 'perf-error';
+                }
+            }
+
+            startPerformanceMonitoring() {
+                // Monitor frame drops and adjust settings automatically
+                setInterval(() => {
+                    const totalFrames = this.stats.framesProcessed + this.stats.framesDropped;
+                    const dropRate = totalFrames > 0 ? (this.stats.framesDropped / totalFrames * 100) : 0;
+
+                    if (dropRate > 20 && this.settings.quality > 0.5) {
+                        // Auto-reduce quality if drop rate is too high
+                        this.settings.quality = Math.max(0.5, this.settings.quality - 0.1);
+                        this.elements.qualitySelect.value = this.settings.quality;
+                        console.log(`Auto-reduced quality to ${this.settings.quality} due to high drop rate`);
+                    }
+                }, 5000);
+            }
+
+            updateStatus(message, type = 'info') {
+                this.elements.connectionStatus.textContent = message;
+                this.elements.connectionStatus.className = `status ${type}`;
+            }
+
+            updateUploadStatus(message, type = 'info') {
+                this.elements.uploadStatus.textContent = message;
+                this.elements.uploadStatus.className = `status ${type}`;
+            }
+
+            detectDesktopApp() {
+                // Check if running in Electron desktop app
+                if (window.isDesktopApp || (typeof window !== 'undefined' && window.electronAPI)) {
+                    this.isDesktopApp = true;
+                    this.elements.virtualCameraGroup.style.display = 'block';
+                    console.log('Desktop app detected - Optimized virtual camera controls enabled');
+                } else {
+                    this.isDesktopApp = false;
+                    console.log('Web browser detected - Virtual camera controls disabled');
+                }
+            }
+
+            async startVirtualCamera() {
+                if (!this.isDesktopApp || !window.virtualCamera) {
+                    this.updateVirtualCameraStatus('Virtual camera only available in desktop app', 'error');
+                    return;
+                }
+
+                try {
+                    this.updateVirtualCameraStatus('Starting optimized virtual camera...', 'info');
+                    const result = await window.virtualCamera.start();
+
+                    if (result.success) {
+                        this.updateVirtualCameraStatus(`✓ ${result.message}`, 'success');
+                        this.elements.startVirtualCameraBtn.disabled = true;
+                        this.elements.stopVirtualCameraBtn.disabled = false;
+                        this.elements.openStreamBtn.disabled = false;
+                        this.virtualCameraActive = true;
+                        this.streamUrl = result.streamUrl;
+
+                        // Show additional info for OBS setup
+                        if (result.type === 'obs-optimized' && result.instructions) {
+                            console.log('OBS Setup Instructions:', result.instructions);
+                        }
+                    } else {
+                        this.updateVirtualCameraStatus(`✗ ${result.error}`, 'error');
+                    }
+                } catch (error) {
+                    this.updateVirtualCameraStatus(`✗ Failed to start virtual camera: ${error.message}`, 'error');
+                }
+            }
+
+            async stopVirtualCamera() {
+                if (!this.isDesktopApp || !window.virtualCamera) {
+                    return;
+                }
+
+                try {
+                    this.updateVirtualCameraStatus('Stopping virtual camera...', 'info');
+                    const result = await window.virtualCamera.stop();
+
+                    if (result.success) {
+                        this.updateVirtualCameraStatus(`✓ ${result.message}`, 'success');
+                        this.elements.startVirtualCameraBtn.disabled = false;
+                        this.elements.stopVirtualCameraBtn.disabled = true;
+                        this.elements.openStreamBtn.disabled = true;
+                        this.virtualCameraActive = false;
+                        this.streamUrl = null;
+                    } else {
+                        this.updateVirtualCameraStatus(`✗ ${result.error}`, 'error');
+                    }
+                } catch (error) {
+                    this.updateVirtualCameraStatus(`✗ Failed to stop virtual camera: ${error.message}`, 'error');
+                }
+            }
+
+            openStreamInBrowser() {
+                if (this.streamUrl) {
+                    window.open(this.streamUrl, '_blank');
+                } else {
+                    this.updateVirtualCameraStatus('No stream URL available', 'error');
+                }
+            }
+
+            async changeVirtualCameraResolution(resolution) {
+                if (!this.isDesktopApp || !window.electronAPI) {
+                    return;
+                }
+
+                const [width, height] = resolution.split('x').map(n => parseInt(n));
+
+                try {
+                    const result = await window.electronAPI.setVirtualCameraResolution(width, height);
+                    if (result.success) {
+                        this.updateVirtualCameraStatus(`✓ Resolution changed to ${resolution}`, 'success');
+                    } else {
+                        this.updateVirtualCameraStatus(`✗ ${result.error}`, 'error');
+                    }
+                } catch (error) {
+                    this.updateVirtualCameraStatus(`✗ Failed to change resolution: ${error.message}`, 'error');
+                }
+            }
+
+            updateVirtualCameraStatus(message, type = 'info') {
+                if (this.elements.virtualCameraStatus) {
+                    this.elements.virtualCameraStatus.textContent = message;
+                    this.elements.virtualCameraStatus.className = `status ${type}`;
+                }
+            }
+        }
+
+        // Initialize the optimized client when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new OptimizedDeepLiveCamClient();
+        });
+    </script>
+</body>
+</html>
