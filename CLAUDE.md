@@ -23,6 +23,11 @@ Deep-Live-Cam is a real-time face swap and video deepfake application built with
 ### Type Checking
 - **Run mypy**: `mypy modules/` (uses configuration from `mypi.ini`)
 
+### Debugging
+- **Check execution providers**: `python run.py --help` to see available providers
+- **Test with CPU only**: `python run.py --execution-provider cpu`
+- **Verbose error output**: Check console output and status messages in UI
+
 ### Model Management
 Required models must be downloaded and placed in the `models/` directory:
 - `GFPGANv1.4.pth` - Face enhancement model
@@ -90,6 +95,11 @@ Before submitting changes, test:
 - **Performance**: No FPS drops, stable boot times
 - **Stability**: 15+ minute GPU stress test
 
+### Branching Strategy (from CONTRIBUTING.md)
+- **premain**: Push all changes here first for testing before merging to main
+- **experimental**: For large or potentially disruptive changes
+- **main**: Production branch, only merge after thorough testing
+
 ### Threading and Performance
 - Uses threading locks in processors (see `THREAD_LOCK` in face_swapper.py)
 - Optimized for single-threaded CUDA performance (`OMP_NUM_THREADS=1`)
@@ -121,3 +131,15 @@ Import and modify global variables:
 import modules.globals
 modules.globals.execution_providers = ["CUDAExecutionProvider"]
 ```
+
+## Performance Optimization
+
+### Environment Variables
+- **CUDA single-threading**: Set `OMP_NUM_THREADS=1` for optimal CUDA performance
+- **Memory management**: Use `--max-memory` argument to limit RAM usage
+
+### Common Issues and Solutions
+- **Model loading errors**: Ensure models are in `/models` directory with correct names
+- **GPU memory issues**: Reduce max_memory setting or switch to CPU execution
+- **Threading conflicts**: Check for THREAD_LOCK usage in custom processors
+- **Performance drops**: Verify execution provider compatibility with your hardware

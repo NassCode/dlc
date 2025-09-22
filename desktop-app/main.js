@@ -302,6 +302,15 @@ class DeepLiveCamApp {
             return process.memoryUsage();
         });
 
+        // Parameter update handlers
+        ipcMain.handle('update-server-parameters', async (event, serverUrl, params) => {
+            return await this.updateServerParameters(serverUrl, params);
+        });
+
+        ipcMain.handle('get-server-parameters', async (event, serverUrl) => {
+            return await this.getServerParameters(serverUrl);
+        });
+
         // Dialog handlers
         ipcMain.handle('show-save-dialog', async (event, options) => {
             const result = await dialog.showSaveDialog(this.mainWindow, options);
@@ -419,6 +428,118 @@ class DeepLiveCamApp {
             message: 'Deep Live Cam Desktop',
             detail: 'Real-time AI face swapping desktop application with virtual camera support.\n\nVersion: 1.0.0\nBuilt with Electron'
         });
+    }
+
+    async updateServerParameters(serverUrl, params) {
+        try {
+            const https = require('https');
+            const http = require('http');
+            const { URL } = require('url');
+
+            const httpUrl = serverUrl.replace('ws://', 'http://').replace('wss://', 'https://');
+            const url = new URL(`${httpUrl}/update-parameters`);
+
+            const postData = JSON.stringify(params);
+            const client = url.protocol === 'https:' ? https : http;
+
+            const options = {
+                hostname: url.hostname,
+                port: url.port,
+                path: url.pathname,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(postData)
+                }
+            };
+
+            return new Promise((resolve, reject) => {
+                const req = client.request(options, (res) => {
+                    let data = '';
+
+                    res.on('data', (chunk) => {
+                        data += chunk;
+                    });
+
+                    res.on('end', () => {
+                        try {
+                            const result = JSON.parse(data);
+                            console.log('Server parameters updated via Electron IPC:', result);
+                            resolve(result);
+                        } catch (error) {
+                            reject(new Error(`Failed to parse response: ${error.message}`));
+                        }
+                    });
+                });
+
+                req.on('error', (error) => {
+                    reject(error);
+                });
+
+                req.write(postData);
+                req.end();
+            });
+
+        } catch (error) {
+            console.error('Failed to update server parameters:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    async getServerParameters(serverUrl) {
+        try {
+            const https = require('https');
+            const http = require('http');
+            const { URL } = require('url');
+
+            const httpUrl = serverUrl.replace('ws://', 'http://').replace('wss://', 'https://');
+            const url = new URL(`${httpUrl}/get-parameters`);
+
+            const client = url.protocol === 'https:' ? https : http;
+
+            const options = {
+                hostname: url.hostname,
+                port: url.port,
+                path: url.pathname,
+                method: 'GET'
+            };
+
+            return new Promise((resolve, reject) => {
+                const req = client.request(options, (res) => {
+                    let data = '';
+
+                    res.on('data', (chunk) => {
+                        data += chunk;
+                    });
+
+                    res.on('end', () => {
+                        try {
+                            const result = JSON.parse(data);
+                            console.log('Server parameters retrieved via Electron IPC:', result);
+                            resolve(result);
+                        } catch (error) {
+                            reject(new Error(`Failed to parse response: ${error.message}`));
+                        }
+                    });
+                });
+
+                req.on('error', (error) => {
+                    reject(error);
+                });
+
+                req.end();
+            });
+
+        } catch (error) {
+            console.error('Failed to get server parameters:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
     }
 
     cleanup() {

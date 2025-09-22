@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Performance monitoring
     getPerformanceStats: () => ipcRenderer.invoke('get-performance-stats'),
 
+    // Parameter updates
+    updateServerParameters: (serverUrl, params) => ipcRenderer.invoke('update-server-parameters', serverUrl, params),
+    getServerParameters: (serverUrl) => ipcRenderer.invoke('get-server-parameters', serverUrl),
+
     // File dialogs
     showSaveDialog: (options) => ipcRenderer.invoke('show-save-dialog', options),
     showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),

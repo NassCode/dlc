@@ -412,6 +412,48 @@
                 </div>
             </div>
 
+            <div class="control-group">
+                <h3>⚙️ Processing Parameters</h3>
+
+                <div class="optimization-controls">
+                    <label>Video Quality:</label>
+                    <input type="range" id="videoQualitySlider" min="10" max="95" value="80">
+                    <span id="videoQualityValue">80</span>%
+                </div>
+
+                <div class="optimization-controls">
+                    <label>Frame Skip:</label>
+                    <input type="range" id="frameSkipSlider" min="1" max="10" value="1">
+                    <span id="frameSkipValue">1</span>
+                </div>
+
+                <div class="optimization-controls">
+                    <label>Target FPS:</label>
+                    <input type="range" id="targetFpsSlider" min="10" max="60" value="30">
+                    <span id="targetFpsValue">30</span>
+                </div>
+
+                <div class="optimization-controls">
+                    <label>Max Faces:</label>
+                    <input type="range" id="maxFacesSlider" min="1" max="5" value="1">
+                    <span id="maxFacesValue">1</span>
+                </div>
+
+                <div class="optimization-controls">
+                    <label>
+                        <input type="checkbox" id="faceEnhancerCheckbox" style="margin-right: 8px;">
+                        Enable Face Enhancement
+                    </label>
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <button class="btn-primary" id="applyParametersBtn">Apply Parameters</button>
+                    <button class="btn-secondary" id="resetParametersBtn">Reset to Default</button>
+                </div>
+
+                <div class="status" id="parametersStatus">Parameters ready</div>
+            </div>
+
             <div class="control-group" id="virtualCameraGroup" style="display: none;">
                 <h3>🎭 Virtual Camera - Optimized</h3>
                 <button class="btn-success" id="startVirtualCameraBtn">Start Virtual Camera</button>
@@ -567,7 +609,21 @@
                     perfLatency: document.getElementById('perfLatency'),
                     perfDropRate: document.getElementById('perfDropRate'),
                     perfProcessing: document.getElementById('perfProcessing'),
-                    perfMemory: document.getElementById('perfMemory')
+                    perfMemory: document.getElementById('perfMemory'),
+
+                    // Parameter controls
+                    videoQualitySlider: document.getElementById('videoQualitySlider'),
+                    videoQualityValue: document.getElementById('videoQualityValue'),
+                    frameSkipSlider: document.getElementById('frameSkipSlider'),
+                    frameSkipValue: document.getElementById('frameSkipValue'),
+                    targetFpsSlider: document.getElementById('targetFpsSlider'),
+                    targetFpsValue: document.getElementById('targetFpsValue'),
+                    maxFacesSlider: document.getElementById('maxFacesSlider'),
+                    maxFacesValue: document.getElementById('maxFacesValue'),
+                    faceEnhancerCheckbox: document.getElementById('faceEnhancerCheckbox'),
+                    applyParametersBtn: document.getElementById('applyParametersBtn'),
+                    resetParametersBtn: document.getElementById('resetParametersBtn'),
+                    parametersStatus: document.getElementById('parametersStatus')
                 };
 
                 this.ctx = this.elements.processedCanvas.getContext('2d');
@@ -620,6 +676,26 @@
                 this.elements.stopCameraBtn.addEventListener('click', () => this.stopCamera());
                 this.elements.startProcessingBtn.addEventListener('click', () => this.startProcessing());
                 this.elements.stopProcessingBtn.addEventListener('click', () => this.stopProcessing());
+
+                // Parameter controls
+                this.elements.videoQualitySlider.addEventListener('input', (e) => {
+                    this.elements.videoQualityValue.textContent = e.target.value;
+                });
+
+                this.elements.frameSkipSlider.addEventListener('input', (e) => {
+                    this.elements.frameSkipValue.textContent = e.target.value;
+                });
+
+                this.elements.targetFpsSlider.addEventListener('input', (e) => {
+                    this.elements.targetFpsValue.textContent = e.target.value;
+                });
+
+                this.elements.maxFacesSlider.addEventListener('input', (e) => {
+                    this.elements.maxFacesValue.textContent = e.target.value;
+                });
+
+                this.elements.applyParametersBtn.addEventListener('click', () => this.applyParameters());
+                this.elements.resetParametersBtn.addEventListener('click', () => this.resetParameters());
 
                 // Virtual camera controls (only in desktop app)
                 if (this.elements.startVirtualCameraBtn) {
@@ -689,6 +765,9 @@
                         this.elements.connectBtn.textContent = 'Disconnect';
                         this.elements.connectionIndicator.classList.add('connected');
                         this.elements.startProcessingBtn.disabled = false;
+
+                        // Load current parameters from server
+                        this.loadCurrentParameters();
                     };
 
                     this.websocket.onmessage = (event) => {
@@ -1275,6 +1354,130 @@
                 if (this.elements.virtualCameraStatus) {
                     this.elements.virtualCameraStatus.textContent = message;
                     this.elements.virtualCameraStatus.className = `status ${type}`;
+                }
+            }
+
+            async applyParameters() {
+                if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+                    this.updateParametersStatus('✗ Not connected to server', 'error');
+                    return;
+                }
+
+                try {
+                    // Collect parameter values
+                    const params = {
+                        video_quality: parseInt(this.elements.videoQualitySlider.value),
+                        frame_skip: parseInt(this.elements.frameSkipSlider.value),
+                        target_fps: parseInt(this.elements.targetFpsSlider.value),
+                        max_faces: parseInt(this.elements.maxFacesSlider.value),
+                        enable_face_enhancer: this.elements.faceEnhancerCheckbox.checked
+                    };
+
+                    let result;
+
+                    // Use Electron IPC if available, otherwise use direct HTTP
+                    if (this.isDesktopApp && window.electronAPI) {
+                        result = await window.electronAPI.updateServerParameters(this.serverUrl, params);
+                    } else {
+                        // Send parameters to server via HTTP
+                        const httpUrl = this.serverUrl.replace('ws://', 'http://').replace('wss://', 'https://');
+                        const response = await fetch(`${httpUrl}/update-parameters`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(params)
+                        });
+
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+
+                        result = await response.json();
+                    }
+
+                    if (result.status === 'success') {
+                        this.updateParametersStatus('✓ Parameters applied successfully', 'success');
+                        console.log('Parameters updated:', result.updated_params);
+                    } else {
+                        this.updateParametersStatus(`✗ Failed to apply parameters: ${result.message || result.error || 'Unknown error'}`, 'error');
+                    }
+
+                } catch (error) {
+                    this.updateParametersStatus(`✗ Error applying parameters: ${error.message}`, 'error');
+                    console.error('Parameter update error:', error);
+                }
+            }
+
+            async loadCurrentParameters() {
+                try {
+                    let result;
+
+                    // Use Electron IPC if available, otherwise use direct HTTP
+                    if (this.isDesktopApp && window.electronAPI) {
+                        result = await window.electronAPI.getServerParameters(this.serverUrl);
+                    } else {
+                        const httpUrl = this.serverUrl.replace('ws://', 'http://').replace('wss://', 'https://');
+                        const response = await fetch(`${httpUrl}/get-parameters`);
+
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+
+                        result = await response.json();
+                    }
+
+                    if (result.status === 'success') {
+                        const params = result.params;
+
+                        // Update UI controls with current values
+                        this.elements.videoQualitySlider.value = params.video_quality || 80;
+                        this.elements.videoQualityValue.textContent = params.video_quality || 80;
+
+                        this.elements.frameSkipSlider.value = params.frame_skip || 1;
+                        this.elements.frameSkipValue.textContent = params.frame_skip || 1;
+
+                        this.elements.targetFpsSlider.value = params.target_fps || 30;
+                        this.elements.targetFpsValue.textContent = params.target_fps || 30;
+
+                        this.elements.maxFacesSlider.value = params.max_faces || 1;
+                        this.elements.maxFacesValue.textContent = params.max_faces || 1;
+
+                        this.elements.faceEnhancerCheckbox.checked = params.enable_face_enhancer || false;
+
+                        this.updateParametersStatus('✓ Parameters loaded from server', 'success');
+                        console.log('Current server parameters:', params);
+                    }
+
+                } catch (error) {
+                    this.updateParametersStatus(`✗ Failed to load parameters: ${error.message}`, 'error');
+                    console.error('Parameter load error:', error);
+                }
+            }
+
+            resetParameters() {
+                // Reset to default values
+                this.elements.videoQualitySlider.value = 80;
+                this.elements.videoQualityValue.textContent = 80;
+
+                this.elements.frameSkipSlider.value = 1;
+                this.elements.frameSkipValue.textContent = 1;
+
+                this.elements.targetFpsSlider.value = 30;
+                this.elements.targetFpsValue.textContent = 30;
+
+                this.elements.maxFacesSlider.value = 1;
+                this.elements.maxFacesValue.textContent = 1;
+
+                this.elements.faceEnhancerCheckbox.checked = false;
+
+                this.updateParametersStatus('Parameters reset to defaults', 'info');
+            }
+
+            updateParametersStatus(message, type = 'info') {
+                if (this.elements.parametersStatus) {
+                    this.elements.parametersStatus.textContent = message;
+                    this.elements.parametersStatus.className = `status ${type}`;
                 }
             }
         }

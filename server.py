@@ -8,6 +8,7 @@ import base64
 import io
 from typing import Optional, Dict, Any
 import logging
+import time
 
 # Set CPU execution and reduce logs before imports
 os.environ['OMP_NUM_THREADS'] = '1'
@@ -54,6 +55,16 @@ app.add_middleware(
 source_image_path = None
 face_swapper = None
 connected_clients = set()
+
+# Dynamic processing parameters
+processing_params = {
+    "video_quality": 80,
+    "frame_skip": 1,
+    "target_fps": 30,
+    "enable_face_enhancer": False,
+    "max_faces": 1,
+    "processing_resolution": (640, 480)
+}
 
 class ConnectionManager:
     def __init__(self):
@@ -140,19 +151,34 @@ def process_frame_with_face_swap(frame: np.ndarray) -> np.ndarray:
             print("No source face detected")
             return frame
 
-        # Get target faces from current frame
+        # Get target faces from current frame based on max_faces parameter
         from modules.face_analyser import get_many_faces
-        target_faces = get_many_faces(temp_frame)
+        all_target_faces = get_many_faces(temp_frame)
 
-        if not target_faces:
+        if not all_target_faces:
             print("No target faces detected in frame")
             return frame
 
-        print(f"Processing {len(target_faces)} faces...")
+        # Limit number of faces based on max_faces parameter
+        max_faces = processing_params["max_faces"]
+        target_faces = all_target_faces[:max_faces]
+
+        print(f"Processing {len(target_faces)} of {len(all_target_faces)} faces...")
+
         # Process each face
         for target_face in target_faces:
             from modules.processors.frame.face_swapper import swap_face
             temp_frame = swap_face(source_face, target_face, temp_frame)
+
+        # Apply face enhancement if enabled
+        if processing_params["enable_face_enhancer"]:
+            try:
+                from modules.processors.frame.face_enhancer import enhance_face
+                for target_face in target_faces:
+                    temp_frame = enhance_face(target_face, temp_frame)
+                print("Face enhancement applied")
+            except Exception as e:
+                print(f"Face enhancement failed: {e}")
 
         print("Face swap completed")
         return temp_frame
@@ -511,6 +537,9 @@ async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time video processing"""
     await manager.connect(websocket)
 
+    frame_counter = 0
+    last_frame_time = time.time()
+
     try:
         while True:
             # Receive frame data
@@ -521,11 +550,31 @@ async def websocket_endpoint(websocket: WebSocket):
             frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
             if frame is not None:
+                frame_counter += 1
+                current_time = time.time()
+
+                # Apply frame skipping based on dynamic parameters
+                if frame_counter % processing_params["frame_skip"] != 0:
+                    continue
+
+                # Apply FPS throttling
+                target_interval = 1.0 / processing_params["target_fps"]
+                if current_time - last_frame_time < target_interval:
+                    continue
+
+                last_frame_time = current_time
+
+                # Resize frame based on processing resolution if needed
+                target_width, target_height = processing_params["processing_resolution"]
+                if frame.shape[1] != target_width or frame.shape[0] != target_height:
+                    frame = cv2.resize(frame, (target_width, target_height))
+
                 # Process frame with face swapping
                 processed_frame = process_frame_with_face_swap(frame)
 
-                # Encode processed frame back to bytes
-                _, buffer = cv2.imencode('.jpg', processed_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                # Encode processed frame back to bytes with dynamic quality
+                quality = processing_params["video_quality"]
+                _, buffer = cv2.imencode('.jpg', processed_frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
 
                 # Send processed frame back
                 await manager.send_personal_bytes(buffer.tobytes(), websocket)
@@ -537,6 +586,78 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"WebSocket error: {e}")
         manager.disconnect(websocket)
 
+@app.post("/update-parameters")
+async def update_parameters(params: Dict[str, Any]):
+    """Update processing parameters dynamically"""
+    global processing_params
+
+    updated_params = {}
+
+    # Validate and update parameters
+    if "video_quality" in params and 10 <= params["video_quality"] <= 95:
+        processing_params["video_quality"] = params["video_quality"]
+        updated_params["video_quality"] = params["video_quality"]
+
+    if "frame_skip" in params and 1 <= params["frame_skip"] <= 10:
+        processing_params["frame_skip"] = params["frame_skip"]
+        updated_params["frame_skip"] = params["frame_skip"]
+
+    if "target_fps" in params and 10 <= params["target_fps"] <= 60:
+        processing_params["target_fps"] = params["target_fps"]
+        updated_params["target_fps"] = params["target_fps"]
+
+    if "enable_face_enhancer" in params:
+        processing_params["enable_face_enhancer"] = bool(params["enable_face_enhancer"])
+        updated_params["enable_face_enhancer"] = processing_params["enable_face_enhancer"]
+
+        # Update global face_enhancer setting
+        modules.globals.fp_ui["face_enhancer"] = processing_params["enable_face_enhancer"]
+        if processing_params["enable_face_enhancer"]:
+            if "face_enhancer" not in modules.globals.frame_processors:
+                modules.globals.frame_processors.append("face_enhancer")
+        else:
+            if "face_enhancer" in modules.globals.frame_processors:
+                modules.globals.frame_processors.remove("face_enhancer")
+
+    if "max_faces" in params and 1 <= params["max_faces"] <= 10:
+        processing_params["max_faces"] = params["max_faces"]
+        updated_params["max_faces"] = params["max_faces"]
+        modules.globals.many_faces = params["max_faces"] > 1
+
+    print(f"Parameters updated: {updated_params}")
+
+    # Notify connected clients about parameter changes
+    notification = {
+        "type": "parameter_update",
+        "params": updated_params,
+        "timestamp": str(asyncio.get_event_loop().time())
+    }
+
+    for client in connected_clients:
+        try:
+            await manager.send_personal_message(json.dumps(notification), client)
+        except:
+            pass
+
+    return {
+        "status": "success",
+        "updated_params": updated_params,
+        "current_params": processing_params
+    }
+
+@app.get("/get-parameters")
+async def get_parameters():
+    """Get current processing parameters"""
+    return {
+        "status": "success",
+        "params": processing_params,
+        "global_settings": {
+            "frame_processors": modules.globals.frame_processors,
+            "many_faces": modules.globals.many_faces,
+            "execution_providers": modules.globals.execution_providers
+        }
+    }
+
 @app.get("/status")
 async def get_status():
     """Get server status"""
@@ -546,7 +667,8 @@ async def get_status():
         "execution_providers": modules.globals.execution_providers,
         "source_image": source_image_path is not None,
         "connected_clients": len(connected_clients),
-        "face_swapper_initialized": face_swapper is not None
+        "face_swapper_initialized": face_swapper is not None,
+        "current_params": processing_params
     }
 
 if __name__ == "__main__":
