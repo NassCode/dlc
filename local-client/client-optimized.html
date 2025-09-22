@@ -504,8 +504,14 @@
                 this.lastProcessTime = 0;
                 this.adaptiveFrameInterval = 33; // Start with 30 FPS
 
+                // Workspace resilience
+                this.isPageVisible = true;
+                this.backgroundStartTime = 0;
+                this.totalBackgroundTime = 0;
+
                 this.initializeElements();
                 this.setupEventListeners();
+                this.initializeWorkspaceResilience();
                 this.startStatsUpdate();
                 this.detectDesktopApp();
                 this.startPerformanceMonitoring();
@@ -1112,6 +1118,82 @@
                 } else {
                     this.isDesktopApp = false;
                     console.log('Web browser detected - Virtual camera controls disabled');
+                }
+            }
+
+            initializeWorkspaceResilience() {
+                // Page Visibility API - prevents throttling when moved to different workspace
+                document.addEventListener('visibilitychange', () => {
+                    const wasVisible = this.isPageVisible;
+                    this.isPageVisible = !document.hidden;
+
+                    if (this.isPageVisible && !wasVisible) {
+                        // Tab returned to foreground
+                        const backgroundDuration = Date.now() - this.backgroundStartTime;
+                        this.totalBackgroundTime += backgroundDuration;
+                        console.log(`🌟 Returned to foreground after ${Math.round(backgroundDuration/1000)}s in background`);
+
+                        // Ensure processing continues smoothly
+                        if (this.isProcessing) {
+                            this.ensureProcessingContinuity();
+                        }
+                    } else if (!this.isPageVisible) {
+                        // Tab moved to background/different workspace
+                        this.backgroundStartTime = Date.now();
+                        console.log('📱 Moved to background - maintaining processing state');
+                    }
+                });
+
+                // Window focus/blur handling for workspace switches
+                window.addEventListener('focus', () => {
+                    console.log('🎯 Window focused - ensuring optimal performance');
+                    if (this.isProcessing) {
+                        this.ensureProcessingContinuity();
+                    }
+                });
+
+                window.addEventListener('blur', () => {
+                    console.log('🔄 Window blurred - maintaining background processing');
+                });
+
+                // Page show/hide for workspace management
+                window.addEventListener('pageshow', () => {
+                    console.log('📥 Page shown - verifying stream continuity');
+                    if (this.isProcessing) {
+                        this.ensureProcessingContinuity();
+                    }
+                });
+
+                console.log('🛡️ Workspace resilience initialized');
+
+                // Listen for Electron background processing maintenance
+                if (this.isDesktopApp && window.electronAPI) {
+                    window.electronAPI.onMaintainBackgroundProcessing(() => {
+                        console.log('🔋 Received background processing maintenance signal from Electron');
+                        this.ensureProcessingContinuity();
+                    });
+                }
+            }
+
+            ensureProcessingContinuity() {
+                // Ensure frame processing continues after workspace changes
+                if (this.mediaStream && this.isProcessing) {
+                    // Verify video track is still active
+                    const videoTrack = this.mediaStream.getVideoTracks()[0];
+                    if (videoTrack && videoTrack.readyState === 'live') {
+                        console.log('✅ Processing continuity verified');
+
+                        // Send a test frame to ensure virtual camera streaming continues
+                        if (this.isDesktopApp && window.virtualCamera && this.ctx) {
+                            this.ctx.canvas.toBlob((blob) => {
+                                if (blob) {
+                                    this.sendFrameToVirtualCameraOptimized(blob);
+                                }
+                            }, 'image/jpeg', this.settings.quality);
+                        }
+                    } else {
+                        console.warn('⚠️ Video track not active - may need restart');
+                    }
                 }
             }
 

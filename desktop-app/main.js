@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, powerSaveBlocker } = require('electron');
 const path = require('path');
 const VirtualCameraManager = require('./virtual-camera');
 const OptimizedVirtualCameraManager = require('./virtual-camera-optimized');
@@ -10,6 +10,7 @@ class DeepLiveCamApp {
         this.optimizedVirtualCamera = new OptimizedVirtualCameraManager();
         this.isDev = process.argv.includes('--dev');
         this.useOptimized = process.argv.includes('--optimized') || this.isDev;
+        this.powerSaveBlockerId = null;
 
         this.initializeApp();
     }
@@ -62,6 +63,9 @@ class DeepLiveCamApp {
         const clientPath = path.join(__dirname, '..', 'local-client', clientFile);
         this.mainWindow.loadFile(clientPath);
 
+        // CRITICAL FIX: Disable background throttling to prevent idle when out of focus
+        this.mainWindow.webContents.setBackgroundThrottling(false);
+
         // Show window when ready
         this.mainWindow.once('ready-to-show', () => {
             this.mainWindow.show();
@@ -69,6 +73,29 @@ class DeepLiveCamApp {
             if (this.isDev) {
                 this.mainWindow.webContents.openDevTools();
             }
+
+            // Start power save blocking for continuous processing
+            this.enableContinuousProcessing();
+        });
+
+        // Handle window focus/blur for workspace resilience
+        this.mainWindow.on('focus', () => {
+            console.log('🎯 Main window focused - ensuring processing continuity');
+        });
+
+        this.mainWindow.on('blur', () => {
+            console.log('🔄 Main window blurred - maintaining background processing');
+            // Ensure background processing continues when window loses focus
+            this.ensureBackgroundProcessing();
+        });
+
+        this.mainWindow.on('minimize', () => {
+            console.log('📦 Window minimized - maintaining processing state');
+            this.ensureBackgroundProcessing();
+        });
+
+        this.mainWindow.on('restore', () => {
+            console.log('📤 Window restored - verifying processing state');
         });
 
         // Handle window closed
@@ -80,6 +107,44 @@ class DeepLiveCamApp {
     }
 
     // Desktop features are now handled by preload.js - removed injection method
+
+    enableContinuousProcessing() {
+        // Prevent system from going to sleep during processing
+        try {
+            if (this.powerSaveBlockerId === null) {
+                this.powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+                console.log('🔋 Power save blocker enabled - preventing app suspension');
+            }
+        } catch (error) {
+            console.error('Failed to enable power save blocker:', error);
+        }
+    }
+
+    disableContinuousProcessing() {
+        // Allow system to sleep when not processing
+        try {
+            if (this.powerSaveBlockerId !== null && powerSaveBlocker.isStarted(this.powerSaveBlockerId)) {
+                powerSaveBlocker.stop(this.powerSaveBlockerId);
+                this.powerSaveBlockerId = null;
+                console.log('🔋 Power save blocker disabled');
+            }
+        } catch (error) {
+            console.error('Failed to disable power save blocker:', error);
+        }
+    }
+
+    ensureBackgroundProcessing() {
+        // Ensure processing continues in background
+        if (this.mainWindow && this.mainWindow.webContents) {
+            // Send a message to the renderer to maintain processing state
+            this.mainWindow.webContents.send('maintain-background-processing');
+
+            // Ensure power save blocker is active
+            this.enableContinuousProcessing();
+
+            console.log('🛡️ Background processing maintenance triggered');
+        }
+    }
 
     setupMenu() {
         const template = [
@@ -357,6 +422,9 @@ class DeepLiveCamApp {
     }
 
     cleanup() {
+        // Disable power save blocker
+        this.disableContinuousProcessing();
+
         if (this.virtualCamera && this.virtualCamera.getStatus().isActive) {
             this.stopVirtualCamera();
         }

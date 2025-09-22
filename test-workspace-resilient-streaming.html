@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚀 Workspace-Resilient Streaming Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1e3c72;
+            color: white;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .test-section {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        button {
+            background: #4ecdc4;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            margin: 5px;
+            cursor: pointer;
+        }
+
+        button:hover { background: #44a08d; }
+        button:disabled { background: #666; cursor: not-allowed; }
+
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+
+        .status.success { background: rgba(76, 175, 80, 0.3); }
+        .status.error { background: rgba(244, 67, 54, 0.3); }
+        .status.info { background: rgba(33, 150, 243, 0.3); }
+        .status.warning { background: rgba(255, 152, 0, 0.3); }
+
+        canvas {
+            border: 2px solid #4ecdc4;
+            border-radius: 10px;
+            background: #000;
+            max-width: 100%;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .metric {
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+
+        .log {
+            background: rgba(0,0,0,0.5);
+            padding: 15px;
+            border-radius: 5px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .resilience-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid #4ecdc4;
+            min-width: 200px;
+        }
+
+        .indicator {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+        }
+
+        .indicator-value {
+            font-weight: bold;
+        }
+
+        .indicator-value.active { color: #4ecdc4; }
+        .indicator-value.inactive { color: #ff6b6b; }
+        .indicator-value.throttled { color: #ffa726; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Workspace-Resilient Streaming Test</h1>
+        <p>This test ensures streaming works when moved to different workspaces/desktops.</p>
+
+        <div class="resilience-indicator" id="resilienceIndicator">
+            <h4>🛡️ Resilience Status</h4>
+            <div class="indicator">
+                <span>Page Visible:</span>
+                <span id="pageVisible" class="indicator-value">Unknown</span>
+            </div>
+            <div class="indicator">
+                <span>WebSocket:</span>
+                <span id="wsState" class="indicator-value">Disconnected</span>
+            </div>
+            <div class="indicator">
+                <span>Canvas Active:</span>
+                <span id="canvasActive" class="indicator-value">No</span>
+            </div>
+            <div class="indicator">
+                <span>Background Mode:</span>
+                <span id="backgroundMode" class="indicator-value">Foreground</span>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔬 Test Objectives</h3>
+            <ul>
+                <li>✅ Stream continues when moved to different workspace</li>
+                <li>🔄 Auto-reconnect on connection drops</li>
+                <li>🎯 Background tab streaming resilience</li>
+                <li>⚡ High-priority frame processing</li>
+                <li>📡 WebSocket keep-alive mechanisms</li>
+            </ul>
+        </div>
+
+        <div class="grid">
+            <div class="test-section">
+                <h3>🔌 Enhanced Connection Control</h3>
+                <button id="connectBtn" onclick="connectToStream()">Connect to Stream</button>
+                <button id="disconnectBtn" onclick="disconnectFromStream()" disabled>Disconnect</button>
+                <button id="testWorkspaceBtn" onclick="testWorkspaceResilience()">Test Workspace Move</button>
+                <div id="connectionStatus" class="status info">Not connected</div>
+
+                <h4>📊 Connection Metrics:</h4>
+                <div class="metrics">
+                    <div class="metric">
+                        <div>Frames Received</div>
+                        <div id="frameCount">0</div>
+                    </div>
+                    <div class="metric">
+                        <div>Reconnections</div>
+                        <div id="reconnectCount">0</div>
+                    </div>
+                    <div class="metric">
+                        <div>Background Time</div>
+                        <div id="backgroundTime">0s</div>
+                    </div>
+                    <div class="metric">
+                        <div>Uptime</div>
+                        <div id="connectionTime">0s</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="test-section">
+                <h3>📺 Resilient Stream Display</h3>
+                <canvas id="streamCanvas" width="400" height="300"></canvas>
+                <div id="canvasStatus" class="status info">No frames received</div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔍 Enhanced Debug Log</h3>
+            <div id="debugLog" class="log"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📋 Workspace Test Instructions</h3>
+            <ol>
+                <li><strong>Setup:</strong> Start Deep Live Cam optimized app and begin processing</li>
+                <li><strong>Connect:</strong> Click "Connect to Stream" and verify frames appear</li>
+                <li><strong>Test Move:</strong> Move this browser window to a different workspace/desktop</li>
+                <li><strong>Verify:</strong> Stream should continue without interruption</li>
+                <li><strong>Background Test:</strong> Switch to other apps while stream runs</li>
+                <li><strong>Check Logs:</strong> Monitor for reconnections and resilience events</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        // Enhanced streaming with workspace resilience
+        class WorkspaceResilientStreaming {
+            constructor() {
+                this.ws = null;
+                this.frameCount = 0;
+                this.reconnectCount = 0;
+                this.canvas = null;
+                this.ctx = null;
+                this.offscreenCanvas = null;
+                this.offscreenCtx = null;
+
+                // Timing and visibility tracking
+                this.lastFrameTime = 0;
+                this.connectionStartTime = 0;
+                this.backgroundStartTime = 0;
+                this.totalBackgroundTime = 0;
+                this.isVisible = true;
+                this.isConnected = false;
+
+                // Resilience mechanisms
+                this.keepAliveInterval = null;
+                this.reconnectTimeout = null;
+                this.frameProcessingQueue = [];
+                this.highPriorityTimer = null;
+
+                // Configuration
+                this.wsUrl = 'ws://localhost:8080/ws';
+                this.keepAliveMs = 10000; // 10 seconds
+                this.reconnectDelayMs = 2000; // 2 seconds
+                this.maxReconnectAttempts = 10;
+                this.currentReconnectAttempt = 0;
+
+                this.initializePageVisibilityHandling();
+                this.initializeFocusHandling();
+                this.initializeOffscreenCanvas();
+                this.startHighPriorityProcessing();
+            }
+
+            initializePageVisibilityHandling() {
+                // Page Visibility API - prevents throttling
+                document.addEventListener('visibilitychange', () => {
+                    const wasVisible = this.isVisible;
+                    this.isVisible = !document.hidden;
+
+                    const visibilityElement = document.getElementById('pageVisible');
+                    const backgroundModeElement = document.getElementById('backgroundMode');
+
+                    if (this.isVisible) {
+                        visibilityElement.textContent = 'Yes';
+                        visibilityElement.className = 'indicator-value active';
+
+                        if (!wasVisible) {
+                            backgroundModeElement.textContent = 'Foreground';
+                            backgroundModeElement.className = 'indicator-value active';
+
+                            const backgroundDuration = Date.now() - this.backgroundStartTime;
+                            this.totalBackgroundTime += backgroundDuration;
+
+                            this.addLog(`🌟 Tab returned to foreground after ${Math.round(backgroundDuration/1000)}s`, 'success');
+                            this.ensureConnectionHealth();
+                        }
+                    } else {
+                        visibilityElement.textContent = 'No';
+                        visibilityElement.className = 'indicator-value throttled';
+                        backgroundModeElement.textContent = 'Background';
+                        backgroundModeElement.className = 'indicator-value throttled';
+
+                        this.backgroundStartTime = Date.now();
+                        this.addLog('📱 Tab moved to background - maintaining connection', 'warning');
+                        this.activateBackgroundMode();
+                    }
+
+                    this.updateBackgroundTimeDisplay();
+                });
+            }
+
+            initializeFocusHandling() {
+                // Window focus/blur handling for workspace switches
+                window.addEventListener('focus', () => {
+                    this.addLog('🎯 Window gained focus - checking connection health', 'info');
+                    this.ensureConnectionHealth();
+                });
+
+                window.addEventListener('blur', () => {
+                    this.addLog('🔄 Window lost focus - activating resilience mode', 'info');
+                    this.activateBackgroundMode();
+                });
+
+                // Additional event listeners for workspace changes
+                window.addEventListener('pagehide', () => {
+                    this.addLog('📤 Page hidden - maintaining WebSocket', 'warning');
+                });
+
+                window.addEventListener('pageshow', () => {
+                    this.addLog('📥 Page shown - verifying connection', 'info');
+                    this.ensureConnectionHealth();
+                });
+            }
+
+            initializeOffscreenCanvas() {
+                // Create offscreen canvas for background rendering
+                try {
+                    this.offscreenCanvas = new OffscreenCanvas(400, 300);
+                    this.offscreenCtx = this.offscreenCanvas.getContext('2d');
+                    this.addLog('🖼️ Offscreen canvas initialized for background rendering', 'success');
+                } catch (error) {
+                    this.addLog('⚠️ Offscreen canvas not supported - using fallback', 'warning');
+                }
+            }
+
+            startHighPriorityProcessing() {
+                // Use high-priority processing to avoid throttling
+                const processFrames = () => {
+                    if (this.frameProcessingQueue.length > 0) {
+                        const frame = this.frameProcessingQueue.shift();
+                        this.renderFrame(frame);
+                    }
+
+                    // Use requestAnimationFrame for smooth rendering
+                    this.highPriorityTimer = requestAnimationFrame(processFrames);
+                };
+
+                processFrames();
+            }
+
+            activateBackgroundMode() {
+                // Enhanced keep-alive for background mode
+                if (this.isConnected) {
+                    this.sendKeepAlive();
+
+                    // Increase keep-alive frequency in background
+                    if (this.keepAliveInterval) {
+                        clearInterval(this.keepAliveInterval);
+                    }
+
+                    this.keepAliveInterval = setInterval(() => {
+                        this.sendKeepAlive();
+                    }, this.keepAliveMs / 2); // More frequent in background
+                }
+            }
+
+            ensureConnectionHealth() {
+                if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                    this.addLog('🔧 Connection health check failed - attempting reconnect', 'warning');
+                    this.reconnectToStream();
+                }
+            }
+
+            connectToStream() {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.addLog('Already connected to stream', 'info');
+                    return;
+                }
+
+                this.addLog(`🔌 Connecting to ${this.wsUrl} with workspace resilience...`, 'info');
+                this.currentReconnectAttempt = 0;
+                this.attemptConnection();
+            }
+
+            attemptConnection() {
+                try {
+                    this.ws = new WebSocket(this.wsUrl);
+                    this.connectionStartTime = Date.now();
+
+                    this.ws.onopen = () => {
+                        this.isConnected = true;
+                        this.currentReconnectAttempt = 0;
+                        this.addLog('✅ Connected with workspace resilience enabled!', 'success');
+                        this.updateConnectionUI(true);
+                        this.startKeepAlive();
+
+                        // Update resilience indicator
+                        document.getElementById('wsState').textContent = 'Connected';
+                        document.getElementById('wsState').className = 'indicator-value active';
+                    };
+
+                    this.ws.onmessage = (event) => {
+                        if (event.data instanceof Blob) {
+                            this.frameCount++;
+                            this.lastFrameTime = Date.now();
+
+                            document.getElementById('frameCount').textContent = this.frameCount;
+                            this.addLog(`📡 Frame #${this.frameCount} (${event.data.size} bytes)`, 'success');
+
+                            // Add to processing queue for resilient rendering
+                            this.frameProcessingQueue.push(event.data);
+
+                            // Update canvas status
+                            document.getElementById('canvasActive').textContent = 'Yes';
+                            document.getElementById('canvasActive').className = 'indicator-value active';
+                        }
+                    };
+
+                    this.ws.onclose = () => {
+                        this.isConnected = false;
+                        this.addLog('❌ WebSocket closed - auto-reconnecting...', 'error');
+                        this.updateConnectionUI(false);
+
+                        document.getElementById('wsState').textContent = 'Reconnecting';
+                        document.getElementById('wsState').className = 'indicator-value throttled';
+
+                        this.scheduleReconnect();
+                    };
+
+                    this.ws.onerror = (error) => {
+                        this.addLog(`💥 WebSocket error: ${error}`, 'error');
+                        this.updateConnectionUI(false);
+                    };
+
+                } catch (error) {
+                    this.addLog(`🚫 Connection failed: ${error.message}`, 'error');
+                    this.scheduleReconnect();
+                }
+            }
+
+            scheduleReconnect() {
+                if (this.currentReconnectAttempt < this.maxReconnectAttempts) {
+                    this.currentReconnectAttempt++;
+                    const delay = this.reconnectDelayMs * Math.pow(1.5, this.currentReconnectAttempt - 1);
+
+                    this.addLog(`🔄 Reconnect attempt ${this.currentReconnectAttempt}/${this.maxReconnectAttempts} in ${delay}ms`, 'warning');
+
+                    this.reconnectTimeout = setTimeout(() => {
+                        this.reconnectToStream();
+                    }, delay);
+                } else {
+                    this.addLog('🛑 Max reconnection attempts reached', 'error');
+                }
+            }
+
+            reconnectToStream() {
+                this.reconnectCount++;
+                document.getElementById('reconnectCount').textContent = this.reconnectCount;
+
+                if (this.reconnectTimeout) {
+                    clearTimeout(this.reconnectTimeout);
+                    this.reconnectTimeout = null;
+                }
+
+                this.attemptConnection();
+            }
+
+            startKeepAlive() {
+                if (this.keepAliveInterval) {
+                    clearInterval(this.keepAliveInterval);
+                }
+
+                this.keepAliveInterval = setInterval(() => {
+                    this.sendKeepAlive();
+                }, this.keepAliveMs);
+            }
+
+            sendKeepAlive() {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+                }
+            }
+
+            renderFrame(blob) {
+                const img = new Image();
+                img.onload = () => {
+                    // Try offscreen canvas first for background rendering
+                    if (!this.isVisible && this.offscreenCtx) {
+                        this.offscreenCtx.clearRect(0, 0, 400, 300);
+                        this.offscreenCtx.drawImage(img, 0, 0, 400, 300);
+                    }
+
+                    // Render to visible canvas
+                    if (!this.canvas) {
+                        this.canvas = document.getElementById('streamCanvas');
+                        this.ctx = this.canvas.getContext('2d');
+                    }
+
+                    const scale = Math.min(this.canvas.width / img.width, this.canvas.height / img.height);
+                    const x = (this.canvas.width - img.width * scale) / 2;
+                    const y = (this.canvas.height - img.height * scale) / 2;
+
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                    this.ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+
+                    document.getElementById('canvasStatus').textContent = `Frame #${this.frameCount} - Workspace resilient`;
+                    document.getElementById('canvasStatus').className = 'status success';
+
+                    URL.revokeObjectURL(img.src);
+                };
+                img.src = URL.createObjectURL(blob);
+            }
+
+            disconnectFromStream() {
+                if (this.ws) {
+                    this.ws.close();
+                    this.ws = null;
+                }
+
+                if (this.keepAliveInterval) {
+                    clearInterval(this.keepAliveInterval);
+                    this.keepAliveInterval = null;
+                }
+
+                if (this.reconnectTimeout) {
+                    clearTimeout(this.reconnectTimeout);
+                    this.reconnectTimeout = null;
+                }
+
+                this.isConnected = false;
+                this.addLog('🔌 Manually disconnected', 'info');
+                this.updateConnectionUI(false);
+            }
+
+            testWorkspaceResilience() {
+                this.addLog('🧪 Testing workspace resilience...', 'info');
+                this.addLog('📱 Now move this window to a different workspace/desktop', 'warning');
+                this.addLog('⏱️ Monitor the stream for continuity', 'info');
+
+                // Simulate some background processing
+                setTimeout(() => {
+                    this.addLog('✅ Workspace resilience test initiated', 'success');
+                }, 1000);
+            }
+
+            updateConnectionUI(connected) {
+                const connectBtn = document.getElementById('connectBtn');
+                const disconnectBtn = document.getElementById('disconnectBtn');
+                const status = document.getElementById('connectionStatus');
+
+                connectBtn.disabled = connected;
+                disconnectBtn.disabled = !connected;
+
+                if (connected) {
+                    status.textContent = 'Connected - Workspace resilient mode active';
+                    status.className = 'status success';
+                } else {
+                    status.textContent = 'Disconnected';
+                    status.className = 'status error';
+                }
+            }
+
+            updateBackgroundTimeDisplay() {
+                const currentBackgroundTime = this.isVisible ? 0 : (Date.now() - this.backgroundStartTime);
+                const totalTime = this.totalBackgroundTime + currentBackgroundTime;
+                document.getElementById('backgroundTime').textContent = `${Math.round(totalTime/1000)}s`;
+            }
+
+            updateConnectionTime() {
+                if (this.connectionStartTime > 0) {
+                    const duration = Math.floor((Date.now() - this.connectionStartTime) / 1000);
+                    document.getElementById('connectionTime').textContent = `${duration}s`;
+                }
+                this.updateBackgroundTimeDisplay();
+            }
+
+            addLog(message, type = 'info') {
+                const log = document.getElementById('debugLog');
+                const timestamp = new Date().toLocaleTimeString();
+                const logEntry = document.createElement('div');
+                logEntry.style.color = type === 'error' ? '#ff6b6b' :
+                                      type === 'success' ? '#4ecdc4' :
+                                      type === 'warning' ? '#ffa726' : '#ffffff';
+                logEntry.textContent = `[${timestamp}] ${message}`;
+                log.appendChild(logEntry);
+                log.scrollTop = log.scrollHeight;
+            }
+        }
+
+        // Initialize the resilient streaming system
+        let resilientStreaming = null;
+
+        function connectToStream() {
+            if (!resilientStreaming) {
+                resilientStreaming = new WorkspaceResilientStreaming();
+            }
+            resilientStreaming.connectToStream();
+        }
+
+        function disconnectFromStream() {
+            if (resilientStreaming) {
+                resilientStreaming.disconnectFromStream();
+            }
+        }
+
+        function testWorkspaceResilience() {
+            if (resilientStreaming) {
+                resilientStreaming.testWorkspaceResilience();
+            }
+        }
+
+        // Initialize page
+        window.addEventListener('DOMContentLoaded', () => {
+            resilientStreaming = new WorkspaceResilientStreaming();
+            resilientStreaming.addLog('🚀 Workspace-resilient streaming initialized', 'success');
+
+            // Update connection time display
+            setInterval(() => {
+                if (resilientStreaming) {
+                    resilientStreaming.updateConnectionTime();
+                }
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

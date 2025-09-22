@@ -21,7 +21,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Event listeners
     onSourceImageSelected: (callback) => ipcRenderer.on('source-image-selected', callback),
     onShowSettings: (callback) => ipcRenderer.on('show-settings', callback),
-    onToggleVirtualCamera: (callback) => ipcRenderer.on('toggle-virtual-camera', callback)
+    onToggleVirtualCamera: (callback) => ipcRenderer.on('toggle-virtual-camera', callback),
+    onMaintainBackgroundProcessing: (callback) => ipcRenderer.on('maintain-background-processing', callback)
 });
 
 // Expose optimized virtual camera object to window
