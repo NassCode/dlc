@@ -983,8 +983,10 @@
                     img.onload = () => {
                         this.ctx.drawImage(img, 0, 0, this.elements.processedCanvas.width, this.elements.processedCanvas.height);
 
-                        // AUTOMATICALLY send processed frame to virtual camera for streaming
-                        if (this.isDesktopApp && this.virtualCameraActive && window.virtualCamera) {
+                        // AUTOMATICALLY send processed frame to streaming system
+                        if (this.isDesktopApp && window.virtualCamera) {
+                            // Send to streaming server when virtual camera system is available
+                            // (streaming server runs independently of virtual camera state)
                             this.sendFrameToVirtualCameraOptimized(blob);
                         }
                     };
@@ -995,15 +997,30 @@
 
             async sendFrameToVirtualCameraOptimized(blob) {
                 try {
-                    if (!this.virtualCameraActive || !window.virtualCamera) {
+                    if (!window.virtualCamera) {
+                        console.error('❌ Virtual camera not available - frame lost');
                         return;
                     }
 
-                    // Send blob directly instead of converting to base64
+                    // Enhanced frame tracking
+                    const frameId = Date.now();
+                    console.log(`📡 [${frameId}] Sending processed frame to streaming server (${blob.size} bytes)`);
+
+                    // CRITICAL FIX: Send frames to streaming server regardless of virtual camera state
+                    // The streaming server provides the browser stream and should always receive frames
+                    // when the virtual camera system is initialized (even if node-virtualcam isn't active)
                     const arrayBuffer = await blob.arrayBuffer();
-                    await window.virtualCamera.sendFrame(arrayBuffer);
+                    const result = await window.virtualCamera.sendFrame(arrayBuffer);
+
+                    if (result.success) {
+                        console.log(`✅ [${frameId}] Frame sent to streaming server successfully`);
+                    } else if (result.skipped) {
+                        console.log(`⏭️ [${frameId}] Frame skipped (adaptive FPS)`);
+                    } else {
+                        console.error(`❌ [${frameId}] Frame sending failed:`, result);
+                    }
                 } catch (error) {
-                    console.error('Failed to send frame to virtual camera:', error);
+                    console.error('💥 Failed to send frame to streaming server:', error);
                 }
             }
 

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Streaming Timing Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1e3c72;
+            color: white;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .test-section {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        button {
+            background: #4ecdc4;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            margin: 5px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #44a08d;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+
+        .status.success { background: rgba(76, 175, 80, 0.3); }
+        .status.error { background: rgba(244, 67, 54, 0.3); }
+        .status.info { background: rgba(33, 150, 243, 0.3); }
+
+        canvas {
+            border: 2px solid #4ecdc4;
+            border-radius: 10px;
+            background: #000;
+            max-width: 100%;
+        }
+
+        .side-by-side {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .side-by-side {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Streaming Timing Analysis</h1>
+        <p>This test compares what happens when we access the stream at different times.</p>
+
+        <div class="test-section">
+            <h3>Test Scenario</h3>
+            <p><strong>Theory:</strong> The stream works in Electron because processing is active when "Open Stream in Browser" is clicked, but fails when manually accessed because no frames have been sent yet.</p>
+        </div>
+
+        <div class="side-by-side">
+            <div class="test-section">
+                <h3>Stream Connection Test</h3>
+                <button onclick="connectToStream()">Connect to Stream</button>
+                <button onclick="disconnectFromStream()">Disconnect</button>
+                <div id="connectionStatus" class="status info">Not connected</div>
+
+                <h4>Stream Info:</h4>
+                <div id="streamInfo">
+                    <p>URL: <span id="streamUrl">http://localhost:8080/stream</span></p>
+                    <p>WebSocket: <span id="wsUrl">ws://localhost:8080/ws</span></p>
+                    <p>Status: <span id="wsStatus">Disconnected</span></p>
+                    <p>Frames Received: <span id="frameCount">0</span></p>
+                    <p>Last Frame: <span id="lastFrameTime">Never</span></p>
+                </div>
+            </div>
+
+            <div class="test-section">
+                <h3>Stream Display</h3>
+                <canvas id="streamCanvas" width="400" height="300"></canvas>
+                <div id="canvasStatus" class="status info">No frames received</div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>Debug Log</h3>
+            <div id="debugLog" style="background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Instructions</h3>
+            <ol>
+                <li><strong>First:</strong> Start Deep Live Cam optimized app</li>
+                <li><strong>Then:</strong> Start virtual camera in the app (this starts streaming server)</li>
+                <li><strong>Before starting processing:</strong> Click "Connect to Stream" above</li>
+                <li><strong>Check:</strong> Does the stream show "waiting for frames"?</li>
+                <li><strong>Then:</strong> Start processing in the app</li>
+                <li><strong>Check:</strong> Do frames start appearing?</li>
+                <li><strong>Compare:</strong> Click "Open Stream in Browser" from app vs. this manual connection</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let frameCount = 0;
+        let canvas = null;
+        let ctx = null;
+        let lastFrameTime = 0;
+        let heartbeatInterval = null;
+
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('debugLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.style.color = type === 'error' ? '#ff6b6b' : type === 'success' ? '#4ecdc4' : '#ffffff';
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            log.appendChild(logEntry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStatus(elementId, text, className = 'info') {
+            const element = document.getElementById(elementId);
+            element.textContent = text;
+            element.className = `status ${className}`;
+        }
+
+        function connectToStream() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                addLog('Already connected to stream', 'info');
+                return;
+            }
+
+            const wsUrl = 'ws://localhost:8080/ws';
+            addLog(`Connecting to ${wsUrl}...`, 'info');
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                addLog('✅ Connected to streaming server!', 'success');
+                updateStatus('connectionStatus', 'Connected to stream', 'success');
+                document.getElementById('wsStatus').textContent = 'Connected';
+
+                // Start heartbeat monitor
+                startHeartbeatMonitor();
+            };
+
+            ws.onmessage = (event) => {
+                if (event.data instanceof Blob) {
+                    frameCount++;
+                    lastFrameTime = Date.now();
+                    document.getElementById('frameCount').textContent = frameCount;
+                    document.getElementById('lastFrameTime').textContent = new Date().toLocaleTimeString();
+
+                    addLog(`📡 Received frame #${frameCount} (${event.data.size} bytes)`, 'success');
+
+                    // Display frame on canvas
+                    const img = new Image();
+                    img.onload = () => {
+                        if (!canvas) {
+                            canvas = document.getElementById('streamCanvas');
+                            ctx = canvas.getContext('2d');
+                        }
+
+                        // Scale image to fit canvas
+                        const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
+                        const x = (canvas.width - img.width * scale) / 2;
+                        const y = (canvas.height - img.height * scale) / 2;
+
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+
+                        updateStatus('canvasStatus', `Displaying frame #${frameCount}`, 'success');
+                        URL.revokeObjectURL(img.src);
+                    };
+                    img.src = URL.createObjectURL(event.data);
+                } else {
+                    try {
+                        const data = JSON.parse(event.data);
+                        addLog(`📊 Received stats: ${JSON.stringify(data)}`, 'info');
+                    } catch (e) {
+                        addLog(`📝 Received text: ${event.data}`, 'info');
+                    }
+                }
+            };
+
+            ws.onclose = () => {
+                addLog('❌ Disconnected from streaming server', 'error');
+                updateStatus('connectionStatus', 'Disconnected', 'error');
+                document.getElementById('wsStatus').textContent = 'Disconnected';
+                stopHeartbeatMonitor();
+            };
+
+            ws.onerror = (error) => {
+                addLog(`💥 WebSocket error: ${error}`, 'error');
+                updateStatus('connectionStatus', 'Connection error', 'error');
+            };
+        }
+
+        function disconnectFromStream() {
+            if (ws) {
+                ws.close();
+                ws = null;
+                addLog('🔌 Manually disconnected', 'info');
+            }
+        }
+
+        function startHeartbeatMonitor() {
+            stopHeartbeatMonitor(); // Clear any existing monitor
+
+            heartbeatInterval = setInterval(() => {
+                const now = Date.now();
+                const timeSinceLastFrame = now - lastFrameTime;
+
+                if (lastFrameTime > 0 && timeSinceLastFrame > 5000) { // 5 seconds without frames
+                    addLog(`⚠️ No frames received for ${Math.round(timeSinceLastFrame/1000)} seconds`, 'error');
+
+                    if (timeSinceLastFrame > 10000) { // 10 seconds - likely dead
+                        addLog('💀 Stream appears to be dead (10+ seconds without frames)', 'error');
+                        updateStatus('connectionStatus', 'Stream inactive', 'error');
+                    }
+                } else if (lastFrameTime > 0) {
+                    const secondsSinceFrame = Math.round(timeSinceLastFrame/1000);
+                    if (secondsSinceFrame >= 2) {
+                        addLog(`⏰ ${secondsSinceFrame}s since last frame`, 'info');
+                    }
+                }
+            }, 2000); // Check every 2 seconds
+        }
+
+        function stopHeartbeatMonitor() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+        }
+
+        // Auto-connect after page loads
+        window.addEventListener('DOMContentLoaded', () => {
+            addLog('🚀 Streaming timing test loaded', 'info');
+            addLog('💡 Start Deep Live Cam app first, then click "Connect to Stream"', 'info');
+        });
+    </script>
+</body>
+</html>

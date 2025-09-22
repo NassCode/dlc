@@ -127,20 +127,22 @@ class OptimizedVirtualCameraManager {
             this.isActive = true;
             const streamUrl = `http://localhost:${this.streamingServer.getStatus().port}/stream`;
 
-            console.log(`Optimized OBS streaming started at ${streamUrl}`);
+            console.log(`✅ Optimized streaming started at ${streamUrl}`);
+            console.log(`📺 Stream URL is ready for browser/OBS access`);
 
             return {
                 success: true,
-                message: `Optimized virtual camera started. Add Browser Source in OBS: ${streamUrl}`,
+                message: `Streaming server started! Access at: ${streamUrl}`,
                 type: 'obs-optimized',
                 streamUrl: streamUrl,
                 instructions: [
-                    '1. Open OBS Studio',
-                    '2. Add a Browser Source',
-                    `3. Set URL to: ${streamUrl}`,
-                    '4. Set Width: 1920, Height: 1080 (or your preferred resolution)',
-                    '5. Enable "Shutdown source when not visible" and "Refresh browser when scene becomes active"',
-                    '6. Start Virtual Camera in OBS'
+                    '✅ Stream URL is ready for use:',
+                    `📺 Browser: Open ${streamUrl}`,
+                    `🎥 OBS: Add Browser Source with URL: ${streamUrl}`,
+                    '⚙️ Recommended OBS settings:',
+                    '   - Width: 1920, Height: 1080',
+                    '   - Enable "Shutdown source when not visible"',
+                    '   - Enable "Refresh browser when scene becomes active"'
                 ]
             };
         } catch (error) {
@@ -245,10 +247,6 @@ class OptimizedVirtualCameraManager {
 
     async sendFrame(imageData) {
         try {
-            if (!this.isActive) {
-                return { success: false, error: 'Virtual camera not active' };
-            }
-
             const now = Date.now();
             this.performance.framesReceived++;
 
@@ -280,7 +278,9 @@ class OptimizedVirtualCameraManager {
             // Update frame buffer with ring buffer approach
             this.updateFrameBuffer(frameBuffer);
 
-            // MAIN FEATURE: Send processed frame to streaming server for direct browser viewing
+            // CRITICAL FIX: Send processed frame to streaming server regardless of virtual camera state
+            // The streaming server provides the browser stream and should always receive frames
+            // when the streaming server is running (independent of node-virtualcam)
             if (this.streamingServer) {
                 this.streamingServer.broadcastFrame(frameBuffer, {
                     timestamp: now,
@@ -289,8 +289,8 @@ class OptimizedVirtualCameraManager {
                 });
             }
 
-            // Send to node-virtualcam if available
-            if (this.virtualCam && this.virtualCamType === 'node-virtualcam') {
+            // Send to node-virtualcam only if virtual camera is active
+            if (this.isActive && this.virtualCam && this.virtualCamType === 'node-virtualcam') {
                 await this.sendFrameToNodeVirtualCam(frameBuffer);
             }
 

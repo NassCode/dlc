@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔬 Sustained Streaming Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1e3c72;
+            color: white;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .test-section {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        button {
+            background: #4ecdc4;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            margin: 5px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #44a08d;
+        }
+
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+
+        .status.success { background: rgba(76, 175, 80, 0.3); }
+        .status.error { background: rgba(244, 67, 54, 0.3); }
+        .status.info { background: rgba(33, 150, 243, 0.3); }
+        .status.warning { background: rgba(255, 152, 0, 0.3); }
+
+        canvas {
+            border: 2px solid #4ecdc4;
+            border-radius: 10px;
+            background: #000;
+            max-width: 100%;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .metric {
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+
+        .log {
+            background: rgba(0,0,0,0.5);
+            padding: 15px;
+            border-radius: 5px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .chart {
+            background: rgba(0,0,0,0.3);
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔬 Sustained Streaming Stability Test</h1>
+        <p>This test monitors streaming stability over extended periods to identify interruption patterns.</p>
+
+        <div class="test-section">
+            <h3>Test Objectives</h3>
+            <ul>
+                <li>✅ <strong>Fixed:</strong> Stream should work regardless of virtual camera state</li>
+                <li>🔍 Monitor streaming for 5+ minutes continuously</li>
+                <li>📊 Track frame delivery patterns and interruptions</li>
+                <li>🎯 Identify root cause of frame flow stops</li>
+                <li>🔧 Verify streaming server independence</li>
+            </ul>
+        </div>
+
+        <div class="grid">
+            <div class="test-section">
+                <h3>🔌 Connection Control</h3>
+                <button id="connectBtn" onclick="connectToStream()">Connect to Stream</button>
+                <button id="disconnectBtn" onclick="disconnectFromStream()" disabled>Disconnect</button>
+                <div id="connectionStatus" class="status info">Not connected</div>
+
+                <h4>📡 Stream Info:</h4>
+                <div class="metrics">
+                    <div class="metric">
+                        <div>Frames Received</div>
+                        <div id="frameCount">0</div>
+                    </div>
+                    <div class="metric">
+                        <div>Connection Time</div>
+                        <div id="connectionTime">0s</div>
+                    </div>
+                    <div class="metric">
+                        <div>Stream Status</div>
+                        <div id="streamHealth">Unknown</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="test-section">
+                <h3>📺 Stream Display</h3>
+                <canvas id="streamCanvas" width="400" height="300"></canvas>
+                <div id="canvasStatus" class="status info">No frames received</div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>📊 Real-time Metrics</h3>
+            <div class="grid">
+                <div>
+                    <h4>Frame Rate Analysis</h4>
+                    <div class="metrics">
+                        <div class="metric">
+                            <div>Current FPS</div>
+                            <div id="currentFps">0</div>
+                        </div>
+                        <div class="metric">
+                            <div>Average FPS</div>
+                            <div id="averageFps">0</div>
+                        </div>
+                        <div class="metric">
+                            <div>Frame Drops</div>
+                            <div id="frameDrops">0</div>
+                        </div>
+                    </div>
+                    <div id="fpsChart" class="chart">FPS Chart: <span id="fpsHistory"></span></div>
+                </div>
+
+                <div>
+                    <h4>Stability Monitoring</h4>
+                    <div class="metrics">
+                        <div class="metric">
+                            <div>Longest Gap</div>
+                            <div id="longestGap">0s</div>
+                        </div>
+                        <div class="metric">
+                            <div>Interruptions</div>
+                            <div id="interruptionCount">0</div>
+                        </div>
+                        <div class="metric">
+                            <div>Uptime %</div>
+                            <div id="uptime">100%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔍 Debug Log</h3>
+            <div id="debugLog" class="log"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📋 Test Instructions</h3>
+            <ol>
+                <li><strong>Start Deep Live Cam:</strong> Run optimized app with <code>npm run dev -- --optimized</code></li>
+                <li><strong>Initialize System:</strong> Upload source image and start camera</li>
+                <li><strong>Start Virtual Camera:</strong> Click "Start Virtual Camera" (this starts streaming server)</li>
+                <li><strong>Connect Test:</strong> Click "Connect to Stream" above</li>
+                <li><strong>Start Processing:</strong> Begin face swapping in the app</li>
+                <li><strong>Monitor:</strong> Let test run for 5+ minutes to check stability</li>
+                <li><strong>Analyze:</strong> Check for frame gaps or interruptions</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let frameCount = 0;
+        let canvas = null;
+        let ctx = null;
+        let lastFrameTime = 0;
+        let connectionStartTime = 0;
+        let monitorInterval = null;
+        let fpsInterval = null;
+        let frameHistory = [];
+        let interruptionCount = 0;
+        let longestGap = 0;
+        let fpsHistory = [];
+
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('debugLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.style.color = type === 'error' ? '#ff6b6b' :
+                                  type === 'success' ? '#4ecdc4' :
+                                  type === 'warning' ? '#ffa726' : '#ffffff';
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            log.appendChild(logEntry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStatus(elementId, text, className = 'info') {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.textContent = text;
+                if (element.classList.contains('status')) {
+                    element.className = `status ${className}`;
+                }
+            }
+        }
+
+        function connectToStream() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                addLog('Already connected to stream', 'info');
+                return;
+            }
+
+            const wsUrl = 'ws://localhost:8080/ws';
+            addLog(`🔌 Connecting to ${wsUrl}...`, 'info');
+
+            ws = new WebSocket(wsUrl);
+            connectionStartTime = Date.now();
+
+            ws.onopen = () => {
+                addLog('✅ Connected to streaming server!', 'success');
+                updateStatus('connectionStatus', 'Connected - Monitoring stability', 'success');
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+
+                startMonitoring();
+            };
+
+            ws.onmessage = (event) => {
+                if (event.data instanceof Blob) {
+                    frameCount++;
+                    const now = Date.now();
+                    lastFrameTime = now;
+
+                    // Track frame timing
+                    frameHistory.push(now);
+                    if (frameHistory.length > 100) {
+                        frameHistory.shift();
+                    }
+
+                    document.getElementById('frameCount').textContent = frameCount;
+                    addLog(`📡 Frame #${frameCount} received (${event.data.size} bytes)`, 'success');
+
+                    // Display frame
+                    displayFrame(event.data);
+
+                } else {
+                    try {
+                        const data = JSON.parse(event.data);
+                        addLog(`📊 Stats: ${JSON.stringify(data)}`, 'info');
+                    } catch (e) {
+                        addLog(`📝 Message: ${event.data}`, 'info');
+                    }
+                }
+            };
+
+            ws.onclose = () => {
+                addLog('❌ Disconnected from streaming server', 'error');
+                updateStatus('connectionStatus', 'Disconnected', 'error');
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                stopMonitoring();
+            };
+
+            ws.onerror = (error) => {
+                addLog(`💥 WebSocket error: ${error}`, 'error');
+                updateStatus('connectionStatus', 'Connection error', 'error');
+            };
+        }
+
+        function disconnectFromStream() {
+            if (ws) {
+                ws.close();
+                ws = null;
+                addLog('🔌 Manually disconnected', 'info');
+                stopMonitoring();
+            }
+        }
+
+        function displayFrame(blob) {
+            const img = new Image();
+            img.onload = () => {
+                if (!canvas) {
+                    canvas = document.getElementById('streamCanvas');
+                    ctx = canvas.getContext('2d');
+                }
+
+                const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
+                const x = (canvas.width - img.width * scale) / 2;
+                const y = (canvas.height - img.height * scale) / 2;
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+
+                updateStatus('canvasStatus', `Displaying frame #${frameCount} - Stream healthy`, 'success');
+                URL.revokeObjectURL(img.src);
+            };
+            img.src = URL.createObjectURL(blob);
+        }
+
+        function startMonitoring() {
+            stopMonitoring(); // Clear existing monitors
+
+            // Monitor connection time and interruptions
+            monitorInterval = setInterval(() => {
+                const now = Date.now();
+
+                // Update connection time
+                if (connectionStartTime > 0) {
+                    const connectionDuration = Math.floor((now - connectionStartTime) / 1000);
+                    document.getElementById('connectionTime').textContent = `${connectionDuration}s`;
+                }
+
+                // Check for interruptions
+                if (lastFrameTime > 0) {
+                    const timeSinceLastFrame = now - lastFrameTime;
+
+                    if (timeSinceLastFrame > 3000) { // 3+ seconds without frames
+                        const gapSeconds = Math.floor(timeSinceLastFrame / 1000);
+
+                        if (gapSeconds > longestGap) {
+                            longestGap = gapSeconds;
+                            document.getElementById('longestGap').textContent = `${longestGap}s`;
+                        }
+
+                        if (timeSinceLastFrame > 5000) { // 5+ seconds = interruption
+                            interruptionCount++;
+                            document.getElementById('interruptionCount').textContent = interruptionCount;
+                            updateStatus('streamHealth', 'Interrupted', 'error');
+                            addLog(`⚠️ INTERRUPTION: ${gapSeconds}s without frames`, 'warning');
+                        } else {
+                            updateStatus('streamHealth', 'Gap detected', 'warning');
+                        }
+                    } else {
+                        updateStatus('streamHealth', 'Healthy', 'success');
+                    }
+                }
+            }, 1000);
+
+            // Calculate FPS
+            fpsInterval = setInterval(() => {
+                if (frameHistory.length >= 2) {
+                    const recentFrames = frameHistory.slice(-30); // Last 30 frames
+                    const timeSpan = recentFrames[recentFrames.length - 1] - recentFrames[0];
+                    const currentFps = Math.round((recentFrames.length - 1) * 1000 / timeSpan);
+
+                    document.getElementById('currentFps').textContent = currentFps;
+
+                    // Track FPS history
+                    fpsHistory.push(currentFps);
+                    if (fpsHistory.length > 60) {
+                        fpsHistory.shift();
+                    }
+
+                    // Calculate average FPS
+                    const avgFps = Math.round(fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length);
+                    document.getElementById('averageFps').textContent = avgFps;
+
+                    // Update FPS chart (simple text representation)
+                    const fpsChart = fpsHistory.slice(-20).map(fps => {
+                        return fps > 25 ? '█' : fps > 20 ? '▆' : fps > 15 ? '▄' : fps > 10 ? '▂' : '▁';
+                    }).join('');
+                    document.getElementById('fpsHistory').textContent = fpsChart;
+                }
+
+                // Calculate uptime percentage
+                const totalTime = Date.now() - connectionStartTime;
+                const interruptionTime = interruptionCount * 5000; // Assume 5s per interruption
+                const uptime = Math.max(0, Math.round((totalTime - interruptionTime) / totalTime * 100));
+                document.getElementById('uptime').textContent = `${uptime}%`;
+            }, 2000);
+        }
+
+        function stopMonitoring() {
+            if (monitorInterval) {
+                clearInterval(monitorInterval);
+                monitorInterval = null;
+            }
+            if (fpsInterval) {
+                clearInterval(fpsInterval);
+                fpsInterval = null;
+            }
+        }
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', () => {
+            addLog('🔬 Sustained streaming test loaded', 'info');
+            addLog('💡 Start Deep Live Cam optimized app first, then connect', 'info');
+            addLog('🎯 Goal: Monitor streaming for 5+ minutes without interruptions', 'info');
+        });
+    </script>
+</body>
+</html>

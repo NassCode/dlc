@@ -311,10 +311,15 @@ class StreamingServer {
 
     // Optimized frame broadcasting
     broadcastFrame(frameBuffer, metadata = {}) {
-        if (this.clients.size === 0) return;
-
         this.latestFrame = frameBuffer;
         this.updateFrameStats();
+
+        if (this.clients.size === 0) {
+            console.log(`📡 Frame received but no clients connected (${frameBuffer.length} bytes)`);
+            return;
+        }
+
+        console.log(`📺 Broadcasting frame to ${this.clients.size} client(s) (${frameBuffer.length} bytes)`);
 
         // Broadcast to all connected clients
         const deadClients = new Set();
