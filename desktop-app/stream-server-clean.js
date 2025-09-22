@@ -1,18 +1,18 @@
-const WebSocket = require('ws');
 const http = require('http');
-const path = require('path');
-const fs = require('fs');
+const WebSocket = require('ws');
 
-class StreamingServer {
-    constructor(port = 8080) {
-        this.port = port || 8080;
+class CleanStreamingServer {
+    constructor(port = 0) {
+        this.port = port;
         this.server = null;
         this.wsServer = null;
         this.clients = new Set();
         this.latestFrame = null;
-        this.frameStats = {
-            fps: 0,
-            frameCount: 0,
+
+        this.stats = {
+            framesProcessed: 0,
+            clientsConnected: 0,
+            serverStartTime: Date.now(),
             lastFpsUpdate: Date.now()
         };
 
@@ -22,12 +22,8 @@ class StreamingServer {
     setupServer() {
         // Create HTTP server for browser access
         this.server = http.createServer((req, res) => {
-            if (req.url === '/') {
-                this.serveStreamPage(res);
-            } else if (req.url === '/stream') {
-                this.serveStreamPage(res);
-            } else if (req.url.startsWith('/static/')) {
-                this.serveStaticFile(req.url, res);
+            if (req.url === '/' || req.url === '/stream') {
+                this.serveCleanStreamPage(res);
             } else {
                 res.writeHead(404);
                 res.end('Not Found');
@@ -41,27 +37,31 @@ class StreamingServer {
         });
 
         this.wsServer.on('connection', (ws) => {
-            console.log('New streaming client connected');
             this.clients.add(ws);
+            this.stats.clientsConnected = this.clients.size;
 
-            // Send latest frame immediately if available
+            // Send latest frame if available
             if (this.latestFrame) {
-                this.sendFrameToClient(ws, this.latestFrame);
+                try {
+                    ws.send(this.latestFrame);
+                } catch (error) {
+                    this.clients.delete(ws);
+                }
             }
 
             ws.on('close', () => {
-                console.log('Streaming client disconnected');
                 this.clients.delete(ws);
+                this.stats.clientsConnected = this.clients.size;
             });
 
             ws.on('error', (error) => {
-                console.error('WebSocket error:', error);
                 this.clients.delete(ws);
+                this.stats.clientsConnected = this.clients.size;
             });
         });
     }
 
-    serveStreamPage(res) {
+    serveCleanStreamPage(res) {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(`
 <!DOCTYPE html>
@@ -193,7 +193,7 @@ class StreamingServer {
                 this.fullscreenHint = document.getElementById('fullscreenHint');
 
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                this.wsUrl = `${protocol}//${window.location.host}/ws`;
+                this.wsUrl = \`\${protocol}//\${window.location.host}/ws\`;
                 this.reconnectDelay = 2000;
                 this.maxReconnectAttempts = 10;
                 this.currentReconnectAttempt = 0;
@@ -246,100 +246,105 @@ class StreamingServer {
                 });
             }
 
-            connect() {
-                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const wsUrl = \`\${protocol}//\${window.location.host}/ws\`;
+            connectToStream() {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    return;
+                }
 
-                this.updateStatus('Connecting...', 'connecting');
-                this.ws = new WebSocket(wsUrl);
+                this.updateStatus('connecting');
+                this.showLoading();
 
-                this.ws.onopen = () => {
-                    this.updateStatus('Connected', 'connected');
-                    document.getElementById('connect-btn').textContent = 'Disconnect';
-                };
+                try {
+                    this.ws = new WebSocket(this.wsUrl);
 
-                this.ws.onmessage = (event) => {
-                    if (event.data instanceof Blob) {
-                        this.handleFrame(event.data);
-                    } else {
-                        try {
-                            const data = JSON.parse(event.data);
-                            this.handleMessage(data);
-                        } catch (e) {
-                            console.error('Invalid message:', e);
+                    this.ws.onopen = () => {
+                        this.isConnected = true;
+                        this.currentReconnectAttempt = 0;
+                        this.updateStatus('connected');
+                        this.hideMessages();
+                    };
+
+                    this.ws.onmessage = (event) => {
+                        if (event.data instanceof Blob) {
+                            this.frameCount++;
+                            this.displayFrame(event.data);
                         }
-                    }
-                };
+                    };
 
-                this.ws.onclose = () => {
-                    this.updateStatus('Disconnected', 'disconnected');
-                    document.getElementById('connect-btn').textContent = 'Connect';
-                };
+                    this.ws.onclose = () => {
+                        this.isConnected = false;
+                        this.updateStatus('disconnected');
+                        this.scheduleReconnect();
+                    };
 
-                this.ws.onerror = (error) => {
-                    console.error('WebSocket error:', error);
-                    this.updateStatus('Error', 'disconnected');
-                };
-            }
+                    this.ws.onerror = () => {
+                        this.isConnected = false;
+                        this.updateStatus('disconnected');
+                        this.showError();
+                    };
 
-            disconnect() {
-                if (this.ws) {
-                    this.ws.close();
+                } catch (error) {
+                    this.updateStatus('disconnected');
+                    this.showError();
+                    this.scheduleReconnect();
                 }
             }
 
-            handleFrame(blob) {
-                const img = new Image();
-                const now = Date.now();
+            scheduleReconnect() {
+                if (this.currentReconnectAttempt < this.maxReconnectAttempts) {
+                    this.currentReconnectAttempt++;
+                    const delay = this.reconnectDelay * Math.pow(1.5, this.currentReconnectAttempt - 1);
 
+                    setTimeout(() => {
+                        this.connectToStream();
+                    }, delay);
+                } else {
+                    this.showError();
+                }
+            }
+
+            displayFrame(blob) {
+                const img = new Image();
                 img.onload = () => {
-                    // Resize canvas if needed
                     if (this.canvas.width !== img.width || this.canvas.height !== img.height) {
                         this.canvas.width = img.width;
                         this.canvas.height = img.height;
-                        document.getElementById('resolution').textContent = \`\${img.width}x\${img.height}\`;
                     }
 
-                    // Draw frame
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
                     this.ctx.drawImage(img, 0, 0);
 
-                    // Update stats
-                    this.stats.frameCount++;
-                    this.stats.latency = now - img.dataset.timestamp;
-
                     URL.revokeObjectURL(img.src);
+                    this.hideMessages();
                 };
-
                 img.src = URL.createObjectURL(blob);
-                img.dataset.timestamp = now;
             }
 
-            handleMessage(data) {
-                if (data.type === 'stats') {
-                    document.getElementById('clients').textContent = data.clients || 0;
+            toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(() => {});
+                } else {
+                    document.exitFullscreen().catch(() => {});
                 }
             }
 
-            updateStatus(text, type) {
-                const statusEl = document.getElementById('status');
-                statusEl.textContent = text;
-                statusEl.className = \`status \${type}\`;
+            updateStatus(status) {
+                this.statusDot.className = \`status-dot \${status}\`;
             }
 
-            startStatsUpdate() {
-                setInterval(() => {
-                    const now = Date.now();
-                    const elapsed = now - this.stats.lastFpsUpdate;
+            showLoading() {
+                this.loadingMessage.classList.remove('hidden');
+                this.errorMessage.classList.add('hidden');
+            }
 
-                    if (elapsed >= 1000) {
-                        this.stats.fps = Math.round((this.stats.frameCount * 1000) / elapsed);
-                        this.stats.frameCount = 0;
-                        this.stats.lastFpsUpdate = now;
+            showError() {
+                this.loadingMessage.classList.add('hidden');
+                this.errorMessage.classList.remove('hidden');
+            }
 
-                        document.getElementById('fps').textContent = this.stats.fps;
-                        document.getElementById('latency').textContent = this.stats.latency || 0;
-                    }
-                }, 100);
+            hideMessages() {
+                this.loadingMessage.classList.add('hidden');
+                this.errorMessage.classList.add('hidden');
             }
         }
 
@@ -352,12 +357,7 @@ class StreamingServer {
         `);
     }
 
-    serveStaticFile(url, res) {
-        res.writeHead(404);
-        res.end('Static files not implemented');
-    }
-
-    // Optimized frame broadcasting
+    // Clean frame broadcasting - no debug logs or metadata
     broadcastFrame(frameBuffer) {
         this.latestFrame = frameBuffer;
         this.updateFrameStats();
@@ -374,7 +374,6 @@ class StreamingServer {
                 try {
                     client.send(frameBuffer);
                 } catch (error) {
-                    console.error('Failed to send frame to client:', error);
                     deadClients.add(client);
                 }
             } else {
@@ -387,61 +386,31 @@ class StreamingServer {
             this.clients.delete(deadClient);
         }
 
-        // Send stats update occasionally
-        if (this.frameStats.frameCount % 30 === 0) {
-            this.broadcastStats();
-        }
-    }
-
-    sendFrameToClient(client, frameBuffer) {
-        try {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(frameBuffer);
-            }
-        } catch (error) {
-            console.error('Failed to send frame to specific client:', error);
-            this.clients.delete(client);
-        }
-    }
-
-    broadcastStats() {
-        const statsData = JSON.stringify({
-            type: 'stats',
-            fps: this.frameStats.fps,
-            clients: this.clients.size,
-            timestamp: Date.now()
-        });
-
-        for (const client of this.clients) {
-            if (client.readyState === WebSocket.OPEN) {
-                try {
-                    client.send(statsData);
-                } catch (error) {
-                    console.error('Failed to send stats:', error);
-                }
-            }
-        }
+        this.stats.clientsConnected = this.clients.size;
     }
 
     updateFrameStats() {
-        this.frameStats.frameCount++;
-        const now = Date.now();
+        this.stats.framesProcessed++;
+        this.stats.lastFpsUpdate = Date.now();
+    }
 
-        if (now - this.frameStats.lastFpsUpdate >= 1000) {
-            this.frameStats.fps = this.frameStats.frameCount;
-            this.frameStats.frameCount = 0;
-            this.frameStats.lastFpsUpdate = now;
-        }
+    getStatus() {
+        return {
+            isRunning: this.server ? this.server.listening : false,
+            port: this.port,
+            clients: this.clients.size,
+            framesProcessed: this.stats.framesProcessed,
+            uptime: Date.now() - this.stats.serverStartTime
+        };
     }
 
     start() {
         return new Promise((resolve, reject) => {
             this.server.listen(this.port, 'localhost', () => {
                 const actualPort = this.server.address().port;
-                this.port = actualPort; // Update the port to the actual assigned port
+                this.port = actualPort;
                 const streamUrl = `http://localhost:${actualPort}/stream`;
-                console.log(`🚀 Streaming server started at ${streamUrl}`);
-                console.log(`📺 WebSocket endpoint: ws://localhost:${actualPort}/ws`);
+                console.log(`🚀 Clean streaming server started at ${streamUrl}`);
                 resolve({
                     success: true,
                     streamUrl,
@@ -451,28 +420,26 @@ class StreamingServer {
             });
 
             this.server.on('error', (error) => {
-                console.error('Streaming server error:', error);
-                reject({ success: false, error: error.message });
+                reject({
+                    success: false,
+                    error: error.message
+                });
             });
         });
     }
 
     stop() {
         return new Promise((resolve) => {
-            // Close all WebSocket connections
-            for (const client of this.clients) {
-                client.close();
-            }
-            this.clients.clear();
-
-            // Close servers
-            if (this.wsServer) {
-                this.wsServer.close();
-            }
-
             if (this.server) {
+                // Close all WebSocket connections
+                for (const client of this.clients) {
+                    client.close();
+                }
+                this.clients.clear();
+
+                // Close the server
                 this.server.close(() => {
-                    console.log('Streaming server stopped');
+                    console.log('🛑 Clean streaming server stopped');
                     resolve({ success: true });
                 });
             } else {
@@ -480,15 +447,6 @@ class StreamingServer {
             }
         });
     }
-
-    getStatus() {
-        return {
-            isRunning: this.server && this.server.listening,
-            port: this.port,
-            clients: this.clients.size,
-            fps: this.frameStats.fps
-        };
-    }
 }
 
-module.exports = StreamingServer;
+module.exports = CleanStreamingServer;

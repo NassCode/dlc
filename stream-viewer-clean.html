@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deep Live Cam - Clean Stream</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+
+        #streamCanvas {
+            max-width: 100vw;
+            max-height: 100vh;
+            object-fit: contain;
+            border: none;
+            background: #000;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-size: 18px;
+            text-align: center;
+        }
+
+        .error {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff6b6b;
+            font-size: 18px;
+            text-align: center;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Minimal status indicator */
+        .status-dot {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ff6b6b;
+            transition: background-color 0.3s ease;
+        }
+
+        .status-dot.connected {
+            background: #4ecdc4;
+        }
+
+        .status-dot.connecting {
+            background: #ffa726;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Hide cursor for clean viewing */
+        body.fullscreen {
+            cursor: none;
+        }
+
+        /* Double-click for fullscreen hint */
+        .fullscreen-hint {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            opacity: 1;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+
+        .fullscreen-hint.hidden {
+            opacity: 0;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="streamCanvas"></canvas>
+
+    <div id="loadingMessage" class="loading">
+        Connecting to stream...
+    </div>
+
+    <div id="errorMessage" class="error hidden">
+        Stream unavailable
+    </div>
+
+    <div class="status-dot" id="statusDot"></div>
+
+    <div class="fullscreen-hint" id="fullscreenHint">
+        Double-click for fullscreen
+    </div>
+
+    <script>
+        class CleanStreamViewer {
+            constructor() {
+                this.ws = null;
+                this.canvas = document.getElementById('streamCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.loadingMessage = document.getElementById('loadingMessage');
+                this.errorMessage = document.getElementById('errorMessage');
+                this.statusDot = document.getElementById('statusDot');
+                this.fullscreenHint = document.getElementById('fullscreenHint');
+
+                this.wsUrl = 'ws://localhost:8080/ws';
+                this.reconnectDelay = 2000;
+                this.maxReconnectAttempts = 10;
+                this.currentReconnectAttempt = 0;
+                this.isConnected = false;
+                this.frameCount = 0;
+
+                this.setupCanvas();
+                this.setupEventListeners();
+                this.connectToStream();
+            }
+
+            setupCanvas() {
+                // Set default canvas size
+                this.canvas.width = 800;
+                this.canvas.height = 600;
+
+                // Fill with black background
+                this.ctx.fillStyle = '#000';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            }
+
+            setupEventListeners() {
+                // Double-click for fullscreen
+                this.canvas.addEventListener('dblclick', () => {
+                    this.toggleFullscreen();
+                });
+
+                // Hide fullscreen hint after first interaction
+                let hintHidden = false;
+                const hideHint = () => {
+                    if (!hintHidden) {
+                        this.fullscreenHint.classList.add('hidden');
+                        hintHidden = true;
+                    }
+                };
+
+                this.canvas.addEventListener('click', hideHint);
+                this.canvas.addEventListener('mousemove', hideHint);
+
+                // Auto-hide hint after 5 seconds
+                setTimeout(() => {
+                    this.fullscreenHint.classList.add('hidden');
+                }, 5000);
+
+                // Handle fullscreen changes
+                document.addEventListener('fullscreenchange', () => {
+                    if (document.fullscreenElement) {
+                        document.body.classList.add('fullscreen');
+                    } else {
+                        document.body.classList.remove('fullscreen');
+                    }
+                });
+
+                // Handle page visibility for workspace resilience
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden && !this.isConnected) {
+                        // Reconnect when page becomes visible again
+                        this.connectToStream();
+                    }
+                });
+            }
+
+            connectToStream() {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    return;
+                }
+
+                this.updateStatus('connecting');
+                this.showLoading();
+
+                try {
+                    this.ws = new WebSocket(this.wsUrl);
+
+                    this.ws.onopen = () => {
+                        this.isConnected = true;
+                        this.currentReconnectAttempt = 0;
+                        this.updateStatus('connected');
+                        this.hideMessages();
+                    };
+
+                    this.ws.onmessage = (event) => {
+                        if (event.data instanceof Blob) {
+                            this.frameCount++;
+                            this.displayFrame(event.data);
+                        }
+                    };
+
+                    this.ws.onclose = () => {
+                        this.isConnected = false;
+                        this.updateStatus('disconnected');
+                        this.scheduleReconnect();
+                    };
+
+                    this.ws.onerror = () => {
+                        this.isConnected = false;
+                        this.updateStatus('disconnected');
+                        this.showError();
+                    };
+
+                } catch (error) {
+                    this.updateStatus('disconnected');
+                    this.showError();
+                    this.scheduleReconnect();
+                }
+            }
+
+            scheduleReconnect() {
+                if (this.currentReconnectAttempt < this.maxReconnectAttempts) {
+                    this.currentReconnectAttempt++;
+                    const delay = this.reconnectDelay * Math.pow(1.5, this.currentReconnectAttempt - 1);
+
+                    setTimeout(() => {
+                        this.connectToStream();
+                    }, delay);
+                } else {
+                    this.showError();
+                }
+            }
+
+            displayFrame(blob) {
+                const img = new Image();
+                img.onload = () => {
+                    // Auto-resize canvas to match video dimensions
+                    if (this.canvas.width !== img.width || this.canvas.height !== img.height) {
+                        this.canvas.width = img.width;
+                        this.canvas.height = img.height;
+                    }
+
+                    // Clear and draw the frame
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                    this.ctx.drawImage(img, 0, 0);
+
+                    URL.revokeObjectURL(img.src);
+                    this.hideMessages();
+                };
+                img.src = URL.createObjectURL(blob);
+            }
+
+            toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(() => {
+                        // Fullscreen request failed - ignore silently
+                    });
+                } else {
+                    document.exitFullscreen().catch(() => {
+                        // Exit fullscreen failed - ignore silently
+                    });
+                }
+            }
+
+            updateStatus(status) {
+                this.statusDot.className = `status-dot ${status}`;
+            }
+
+            showLoading() {
+                this.loadingMessage.classList.remove('hidden');
+                this.errorMessage.classList.add('hidden');
+            }
+
+            showError() {
+                this.loadingMessage.classList.add('hidden');
+                this.errorMessage.classList.remove('hidden');
+            }
+
+            hideMessages() {
+                this.loadingMessage.classList.add('hidden');
+                this.errorMessage.classList.add('hidden');
+            }
+        }
+
+        // Initialize the clean stream viewer
+        window.addEventListener('DOMContentLoaded', () => {
+            new CleanStreamViewer();
+        });
+    </script>
+</body>
+</html>

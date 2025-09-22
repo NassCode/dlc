@@ -1,4 +1,4 @@
-const StreamingServer = require('./stream-server');
+const CleanStreamingServer = require('./stream-server-clean');
 
 class OptimizedVirtualCameraManager {
     constructor() {
@@ -182,7 +182,7 @@ class OptimizedVirtualCameraManager {
 
         for (const port of ports) {
             try {
-                this.streamingServer = new StreamingServer(port);
+                this.streamingServer = new CleanStreamingServer(port);
                 const result = await this.streamingServer.start();
 
                 if (result.success) {
@@ -282,11 +282,7 @@ class OptimizedVirtualCameraManager {
             // The streaming server provides the browser stream and should always receive frames
             // when the streaming server is running (independent of node-virtualcam)
             if (this.streamingServer) {
-                this.streamingServer.broadcastFrame(frameBuffer, {
-                    timestamp: now,
-                    fps: this.performance.adaptiveFps,
-                    type: 'processed_frame'
-                });
+                this.streamingServer.broadcastFrame(frameBuffer);
             }
 
             // Send to node-virtualcam only if virtual camera is active

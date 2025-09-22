@@ -1008,22 +1008,15 @@
                         return;
                     }
 
-                    // Enhanced frame tracking
-                    const frameId = Date.now();
-                    console.log(`📡 [${frameId}] Sending processed frame to streaming server (${blob.size} bytes)`);
-
                     // CRITICAL FIX: Send frames to streaming server regardless of virtual camera state
                     // The streaming server provides the browser stream and should always receive frames
                     // when the virtual camera system is initialized (even if node-virtualcam isn't active)
                     const arrayBuffer = await blob.arrayBuffer();
                     const result = await window.virtualCamera.sendFrame(arrayBuffer);
 
-                    if (result.success) {
-                        console.log(`✅ [${frameId}] Frame sent to streaming server successfully`);
-                    } else if (result.skipped) {
-                        console.log(`⏭️ [${frameId}] Frame skipped (adaptive FPS)`);
-                    } else {
-                        console.error(`❌ [${frameId}] Frame sending failed:`, result);
+                    // Only log actual errors, not success messages
+                    if (!result.success && !result.skipped) {
+                        console.error(`❌ Frame sending failed:`, result);
                     }
                 } catch (error) {
                     console.error('💥 Failed to send frame to streaming server:', error);
