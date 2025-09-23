@@ -15,6 +15,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import cv2
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 import uvicorn
@@ -79,6 +80,16 @@ source_image_path = None
 face_swapper = None
 connected_clients = set()
 
+# Dynamic processing parameters
+processing_params = {
+    "video_quality": 80,
+    "frame_skip": 1,
+    "target_fps": 30,
+    "enable_face_enhancer": False,
+    "max_faces": 1,
+    "processing_resolution": (640, 480)
+}
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -109,6 +120,15 @@ class ConnectionManager:
             self.disconnect(websocket)
 
 manager = ConnectionManager()
+
+# Pydantic models for API
+class ProcessingParams(BaseModel):
+    video_quality: Optional[int] = None
+    frame_skip: Optional[int] = None
+    target_fps: Optional[int] = None
+    enable_face_enhancer: Optional[bool] = None
+    max_faces: Optional[int] = None
+    processing_resolution: Optional[tuple] = None
 
 def init_face_swapper():
     """Initialize the face swapper model"""
@@ -152,8 +172,15 @@ def process_frame_with_face_swap(frame: np.ndarray) -> np.ndarray:
             print("No source face detected")
             return frame
 
-        # Get target faces from current frame
-        target_faces = get_many_faces(temp_frame)
+        # Get target faces from current frame (limited by max_faces parameter)
+        max_faces = processing_params["max_faces"]
+        if max_faces == 1:
+            target_face = get_one_face(temp_frame)
+            target_faces = [target_face] if target_face else []
+        else:
+            target_faces = get_many_faces(temp_frame)
+            if len(target_faces) > max_faces:
+                target_faces = target_faces[:max_faces]
 
         if not target_faces:
             return frame
@@ -162,6 +189,18 @@ def process_frame_with_face_swap(frame: np.ndarray) -> np.ndarray:
         for target_face in target_faces:
             from modules.processors.frame.face_swapper import swap_face
             temp_frame = swap_face(source_face, target_face, temp_frame)
+
+        # Apply face enhancement if enabled
+        if processing_params["enable_face_enhancer"]:
+            try:
+                from modules.processors.frame.face_enhancer import enhance_face
+                for target_face in target_faces:
+                    temp_frame = enhance_face(target_face, temp_frame)
+            except ImportError:
+                # Face enhancer not available, skip
+                pass
+            except Exception as e:
+                print(f"Face enhancement error: {e}")
 
         return temp_frame
     except Exception as e:
@@ -226,14 +265,48 @@ async def upload_source_image(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
 
+@app.post("/update-parameters")
+async def update_parameters(params: ProcessingParams):
+    """Update processing parameters dynamically"""
+    global processing_params
+
+    # Update only provided parameters
+    if params.video_quality is not None:
+        processing_params["video_quality"] = max(10, min(95, params.video_quality))
+    if params.frame_skip is not None:
+        processing_params["frame_skip"] = max(1, min(10, params.frame_skip))
+    if params.target_fps is not None:
+        processing_params["target_fps"] = max(5, min(60, params.target_fps))
+    if params.enable_face_enhancer is not None:
+        processing_params["enable_face_enhancer"] = params.enable_face_enhancer
+    if params.max_faces is not None:
+        processing_params["max_faces"] = max(1, min(10, params.max_faces))
+    if params.processing_resolution is not None:
+        processing_params["processing_resolution"] = params.processing_resolution
+
+    return {
+        "status": "success",
+        "message": "Parameters updated successfully",
+        "current_params": processing_params
+    }
+
+@app.get("/get-parameters")
+async def get_parameters():
+    """Get current processing parameters"""
+    return {
+        "status": "success",
+        "params": processing_params
+    }
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time video processing"""
     await manager.connect(websocket)
 
     frame_skip_counter = 0
-    FRAME_SKIP = 8  # Process every 8th frame for much better performance
     last_processed_frame = None
+    import time
+    last_frame_time = time.time()
 
     try:
         while True:
@@ -245,18 +318,20 @@ async def websocket_endpoint(websocket: WebSocket):
             frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
             if frame is not None:
-                # Resize frame for much faster processing
+                # Use dynamic processing resolution
+                target_width, target_height = processing_params["processing_resolution"]
                 height, width = frame.shape[:2]
-                if width > 320:  # Limit max width to 320px for speed
-                    scale = 320 / width
-                    new_width = 320
+                if width > target_width:
+                    scale = target_width / width
+                    new_width = target_width
                     new_height = int(height * scale)
                     frame = cv2.resize(frame, (new_width, new_height))
 
                 frame_skip_counter += 1
 
-                # Only process every Nth frame
-                if frame_skip_counter >= FRAME_SKIP:
+                # Use dynamic frame skip
+                frame_skip = processing_params["frame_skip"]
+                if frame_skip_counter >= frame_skip:
                     frame_skip_counter = 0
                     # Process frame with face swapping
                     processed_frame = process_frame_with_face_swap(frame)
@@ -265,8 +340,21 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Use last processed frame or original frame
                     processed_frame = last_processed_frame if last_processed_frame is not None else frame
 
-                # Encode processed frame back to bytes with very low quality for speed
-                _, buffer = cv2.imencode('.jpg', processed_frame, [cv2.IMWRITE_JPEG_QUALITY, 30])
+                # FPS throttling
+                current_time = time.time()
+                target_fps = processing_params["target_fps"]
+                frame_interval = 1.0 / target_fps
+                time_diff = current_time - last_frame_time
+
+                if time_diff < frame_interval:
+                    # Skip frame to maintain target FPS
+                    continue
+
+                last_frame_time = current_time
+
+                # Use dynamic video quality
+                video_quality = processing_params["video_quality"]
+                _, buffer = cv2.imencode('.jpg', processed_frame, [cv2.IMWRITE_JPEG_QUALITY, video_quality])
 
                 # Send processed frame back
                 await manager.send_personal_bytes(buffer.tobytes(), websocket)
