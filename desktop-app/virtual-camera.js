@@ -1,6 +1,8 @@
 // We'll use browser-based canvas manipulation instead of node-canvas
 // This simplifies installation and avoids native dependencies
 
+const { detectVirtualCameraEnvironment } = require('./virtual-camera-environment');
+
 class VirtualCameraManager {
     constructor() {
         this.virtualCam = null;
@@ -17,37 +19,16 @@ class VirtualCameraManager {
 
     async initializeVirtualCam() {
         try {
-            // Try node-virtualcam first
-            try {
-                const VirtualCam = require('node-virtualcam');
-                this.virtualCamLib = VirtualCam;
-                this.virtualCamType = 'node-virtualcam';
-                console.log('Using node-virtualcam for virtual camera');
-                return;
-            } catch (error) {
-                console.log('node-virtualcam not available:', error.message);
-            }
+            const detection = detectVirtualCameraEnvironment({
+                nodeMessage: 'Using node-virtualcam for virtual camera',
+                obsMessage: 'OBS Studio found - virtual camera available',
+                fallbackMessage: 'No virtual camera library available - using mock implementation',
+                obsType: 'obs-virtual-cam',
+                fallbackType: 'none'
+            });
 
-            // Check for OBS Studio installation (Windows)
-            try {
-                const fs = require('fs');
-                const path = require('path');
-
-                const obsPath64 = 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe';
-                const obsPath32 = 'C:\\Program Files (x86)\\obs-studio\\bin\\32bit\\obs32.exe';
-
-                if (fs.existsSync(obsPath64) || fs.existsSync(obsPath32)) {
-                    this.virtualCamType = 'obs-virtual-cam';
-                    console.log('OBS Studio found - virtual camera available');
-                    return;
-                }
-            } catch (error) {
-                console.log('OBS Studio check failed:', error.message);
-            }
-
-            // No virtual camera library available
-            this.virtualCamType = 'none';
-            console.log('No virtual camera library available - using mock implementation');
+            this.virtualCamLib = detection.virtualCamLib;
+            this.virtualCamType = detection.type;
 
         } catch (error) {
             console.error('Failed to initialize virtual camera libraries:', error);

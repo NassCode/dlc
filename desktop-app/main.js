@@ -179,12 +179,16 @@ class DeepLiveCamApp {
                     {
                         label: 'Start Virtual Camera',
                         accelerator: 'CmdOrCtrl+Shift+V',
-                        click: () => this.toggleVirtualCamera()
+                        click: async () => {
+                            await this.startVirtualCameraFromMenu();
+                        }
                     },
                     {
                         label: 'Stop Virtual Camera',
                         accelerator: 'CmdOrCtrl+Shift+S',
-                        click: () => this.stopVirtualCamera()
+                        click: async () => {
+                            await this.stopVirtualCameraFromMenu();
+                        }
                     }
                 ]
             },
@@ -438,14 +442,16 @@ class DeepLiveCamApp {
 
             const httpUrl = serverUrl.replace('ws://', 'http://').replace('wss://', 'https://');
             const url = new URL(`${httpUrl}/update-parameters`);
+            const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+            const pathWithQuery = `${url.pathname}${url.search}`;
 
             const postData = JSON.stringify(params);
             const client = url.protocol === 'https:' ? https : http;
 
             const options = {
                 hostname: url.hostname,
-                port: url.port,
-                path: url.pathname,
+                port,
+                path: pathWithQuery,
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -497,13 +503,15 @@ class DeepLiveCamApp {
 
             const httpUrl = serverUrl.replace('ws://', 'http://').replace('wss://', 'https://');
             const url = new URL(`${httpUrl}/get-parameters`);
+            const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+            const pathWithQuery = `${url.pathname}${url.search}`;
 
             const client = url.protocol === 'https:' ? https : http;
 
             const options = {
                 hostname: url.hostname,
-                port: url.port,
-                path: url.pathname,
+                port,
+                path: pathWithQuery,
                 method: 'GET'
             };
 
@@ -540,6 +548,28 @@ class DeepLiveCamApp {
                 error: error.message
             };
         }
+    }
+
+    async startVirtualCameraFromMenu() {
+        if (this.useOptimized) {
+            const result = await this.startOptimizedVirtualCamera();
+            if (!result || result.success) {
+                return result;
+            }
+            console.warn('Optimized virtual camera failed to start, falling back to legacy implementation.');
+        }
+        return await this.startVirtualCamera();
+    }
+
+    async stopVirtualCameraFromMenu() {
+        if (this.useOptimized) {
+            const result = await this.stopOptimizedVirtualCamera();
+            if (!result || result.success) {
+                return result;
+            }
+            console.warn('Optimized virtual camera failed to stop cleanly, attempting legacy shutdown.');
+        }
+        return await this.stopVirtualCamera();
     }
 
     cleanup() {

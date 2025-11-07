@@ -1,4 +1,5 @@
 const CleanStreamingServer = require('./stream-server-clean');
+const { detectVirtualCameraEnvironment } = require('./virtual-camera-environment');
 
 class OptimizedVirtualCameraManager {
     constructor() {
@@ -26,34 +27,16 @@ class OptimizedVirtualCameraManager {
 
     async initializeVirtualCam() {
         try {
-            // Try node-virtualcam first
-            try {
-                const VirtualCam = require('node-virtualcam');
-                this.virtualCamLib = VirtualCam;
-                this.virtualCamType = 'node-virtualcam';
-                console.log('Using optimized node-virtualcam for virtual camera');
-                return;
-            } catch (error) {
-                console.log('node-virtualcam not available:', error.message);
-            }
+            const detection = detectVirtualCameraEnvironment({
+                nodeMessage: 'Using optimized node-virtualcam for virtual camera',
+                obsMessage: 'OBS Studio found - using optimized streaming',
+                fallbackMessage: 'Using stream-only mode for browser testing',
+                obsType: 'obs-optimized',
+                fallbackType: 'stream-only'
+            });
 
-            // Check for OBS Studio and use optimized streaming
-            try {
-                const fs = require('fs');
-                const obsPath64 = 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe';
-                const obsPath32 = 'C:\\Program Files (x86)\\obs-studio\\bin\\32bit\\obs32.exe';
-
-                if (fs.existsSync(obsPath64) || fs.existsSync(obsPath32)) {
-                    this.virtualCamType = 'obs-optimized';
-                    console.log('OBS Studio found - using optimized streaming');
-                    return;
-                }
-            } catch (error) {
-                console.log('OBS Studio check failed:', error.message);
-            }
-
-            this.virtualCamType = 'stream-only';
-            console.log('Using stream-only mode for browser testing');
+            this.virtualCamLib = detection.virtualCamLib;
+            this.virtualCamType = detection.type;
 
         } catch (error) {
             console.error('Failed to initialize virtual camera libraries:', error);

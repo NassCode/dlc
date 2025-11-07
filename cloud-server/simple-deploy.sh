@@ -3,6 +3,9 @@
 # Simplified Deep-Live-Cam Deployment Script
 # Only clones repo and downloads models
 # Usage: ./simple-deploy.sh
+# curl -L -o simple-deploy.sh "https://raw.githubusercontent.com/NassCode/dlc/main/cloud-server/simple-deploy.sh"
+#  
+
 
 set -e  # Exit on any error
 
