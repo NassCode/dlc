@@ -513,6 +513,7 @@
                 this.websocket = null;
                 this.mediaStream = null;
                 this.isProcessing = false;
+                this.awaitingResponse = false;
                 this.serverUrl = 'ws://localhost:8000';
 
                 // Optimized settings
@@ -973,6 +974,7 @@
                 }
 
                 this.isProcessing = true;
+                this.awaitingResponse = false;
                 this.elements.startProcessingBtn.disabled = true;
                 this.elements.stopProcessingBtn.disabled = false;
                 this.updateStatus('✓ Optimized processing started', 'success');
@@ -981,6 +983,7 @@
 
             stopProcessing() {
                 this.isProcessing = false;
+                this.awaitingResponse = false;
                 this.elements.startProcessingBtn.disabled = false;
                 this.elements.stopProcessingBtn.disabled = true;
                 this.updateStatus('Processing stopped', 'info');
@@ -988,6 +991,19 @@
 
             processFramesOptimized() {
                 if (!this.isProcessing) return;
+
+                // Backpressure: keep at most one frame in-flight.
+                if (this.awaitingResponse) {
+                    requestAnimationFrame(() => this.processFramesOptimized());
+                    return;
+                }
+
+                // Avoid building up large browser-side send buffers on slow links.
+                if (this.websocket && this.websocket.bufferedAmount > 2_000_000) {
+                    this.stats.framesDropped++;
+                    requestAnimationFrame(() => this.processFramesOptimized());
+                    return;
+                }
 
                 const now = Date.now();
                 const timeSinceLastFrame = now - this.lastProcessTime;
@@ -1010,6 +1026,7 @@
                     quality: this.settings.quality
                 }).then(blob => {
                     if (blob && this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                        this.awaitingResponse = true;
                         this.stats.lastFrameTime = Date.now();
                         this.websocket.send(blob);
                         this.stats.framesProcessed++;
@@ -1062,18 +1079,41 @@
                 const latency = now - this.stats.lastFrameTime;
                 this.stats.latency = latency;
 
+                const afterDraw = () => {
+                    // AUTOMATICALLY send processed frame to streaming system
+                    if (this.isDesktopApp && window.virtualCamera) {
+                        // (streaming server runs independently of virtual camera state)
+                        this.sendFrameToVirtualCameraOptimized(blob);
+                    }
+                    this.awaitingResponse = false;
+                };
+
+                if (typeof createImageBitmap === 'function') {
+                    createImageBitmap(blob).then((bitmap) => {
+                        this.ctx.drawImage(bitmap, 0, 0, this.elements.processedCanvas.width, this.elements.processedCanvas.height);
+                        if (typeof bitmap.close === 'function') bitmap.close();
+                        afterDraw();
+                    }).catch(() => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            const img = new Image();
+                            img.onload = () => {
+                                this.ctx.drawImage(img, 0, 0, this.elements.processedCanvas.width, this.elements.processedCanvas.height);
+                                afterDraw();
+                            };
+                            img.src = e.target.result;
+                        };
+                        reader.readAsDataURL(blob);
+                    });
+                    return;
+                }
+
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     const img = new Image();
                     img.onload = () => {
                         this.ctx.drawImage(img, 0, 0, this.elements.processedCanvas.width, this.elements.processedCanvas.height);
-
-                        // AUTOMATICALLY send processed frame to streaming system
-                        if (this.isDesktopApp && window.virtualCamera) {
-                            // Send to streaming server when virtual camera system is available
-                            // (streaming server runs independently of virtual camera state)
-                            this.sendFrameToVirtualCameraOptimized(blob);
-                        }
+                        afterDraw();
                     };
                     img.src = e.target.result;
                 };

@@ -367,6 +367,7 @@
                 this.websocket = null;
                 this.mediaStream = null;
                 this.isProcessing = false;
+                this.awaitingResponse = false;
                 this.serverUrl = 'ws://localhost:8000';
                 this.stats = {
                     fps: 0,
@@ -419,6 +420,10 @@
                 this.ctx = this.elements.processedCanvas.getContext('2d');
                 this.elements.processedCanvas.width = 640;
                 this.elements.processedCanvas.height = 480;
+
+                // Reuse a single capture canvas to avoid per-frame allocations.
+                this.captureCanvas = document.createElement('canvas');
+                this.captureCtx = this.captureCanvas.getContext('2d', { willReadFrequently: false });
             }
 
             setupEventListeners() {
@@ -606,6 +611,7 @@
                 }
 
                 this.isProcessing = true;
+                this.awaitingResponse = false;
                 this.elements.startProcessingBtn.disabled = true;
                 this.elements.stopProcessingBtn.disabled = false;
                 this.updateStatus('✓ Processing started', 'success');
@@ -614,6 +620,7 @@
 
             stopProcessing() {
                 this.isProcessing = false;
+                this.awaitingResponse = false;
                 this.elements.startProcessingBtn.disabled = false;
                 this.elements.stopProcessingBtn.disabled = true;
                 this.updateStatus('Processing stopped', 'info');
@@ -622,15 +629,32 @@
             processFrames() {
                 if (!this.isProcessing) return;
 
-                const canvas = document.createElement('canvas');
-                const context = canvas.getContext('2d');
-                canvas.width = this.elements.localVideo.videoWidth;
-                canvas.height = this.elements.localVideo.videoHeight;
+                // Backpressure: only allow one in-flight frame at a time.
+                if (this.awaitingResponse) {
+                    setTimeout(() => this.processFrames(), 10);
+                    return;
+                }
 
-                context.drawImage(this.elements.localVideo, 0, 0);
+                // Avoid unbounded client-side buffering if network is congested.
+                if (this.websocket && this.websocket.bufferedAmount > 2_000_000) {
+                    setTimeout(() => this.processFrames(), 20);
+                    return;
+                }
 
-                canvas.toBlob((blob) => {
+                const vw = this.elements.localVideo.videoWidth;
+                const vh = this.elements.localVideo.videoHeight;
+                if (!vw || !vh) {
+                    setTimeout(() => this.processFrames(), 33);
+                    return;
+                }
+
+                this.captureCanvas.width = vw;
+                this.captureCanvas.height = vh;
+                this.captureCtx.drawImage(this.elements.localVideo, 0, 0);
+
+                this.captureCanvas.toBlob((blob) => {
                     if (blob && this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                        this.awaitingResponse = true;
                         this.stats.lastFrameTime = Date.now();
                         this.websocket.send(blob);
                         this.stats.framesProcessed++;
@@ -646,16 +670,41 @@
                 const latency = now - this.stats.lastFrameTime;
                 this.stats.latency = latency;
 
+                const drawAndMaybeForward = () => {
+                    // Send frame to virtual camera if active and in desktop app
+                    if (this.isDesktopApp && this.virtualCameraActive && window.virtualCamera) {
+                        this.sendFrameToVirtualCamera();
+                    }
+                    this.awaitingResponse = false;
+                };
+
+                if (typeof createImageBitmap === 'function') {
+                    createImageBitmap(blob).then((bitmap) => {
+                        this.ctx.drawImage(bitmap, 0, 0, this.elements.processedCanvas.width, this.elements.processedCanvas.height);
+                        if (typeof bitmap.close === 'function') bitmap.close();
+                        drawAndMaybeForward();
+                    }).catch(() => {
+                        // Fallback to FileReader below
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            const img = new Image();
+                            img.onload = () => {
+                                this.ctx.drawImage(img, 0, 0, this.elements.processedCanvas.width, this.elements.processedCanvas.height);
+                                drawAndMaybeForward();
+                            };
+                            img.src = e.target.result;
+                        };
+                        reader.readAsDataURL(blob);
+                    });
+                    return;
+                }
+
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     const img = new Image();
                     img.onload = () => {
                         this.ctx.drawImage(img, 0, 0, this.elements.processedCanvas.width, this.elements.processedCanvas.height);
-
-                        // Send frame to virtual camera if active and in desktop app
-                        if (this.isDesktopApp && this.virtualCameraActive && window.virtualCamera) {
-                            this.sendFrameToVirtualCamera();
-                        }
+                        drawAndMaybeForward();
                     };
                     img.src = e.target.result;
                 };

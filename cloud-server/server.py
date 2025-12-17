@@ -6,6 +6,7 @@ import argparse
 import json
 import base64
 import io
+import asyncio
 from typing import Optional, Dict, Any
 import logging
 
@@ -303,66 +304,105 @@ async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time video processing"""
     await manager.connect(websocket)
 
-    frame_skip_counter = 0
-    last_processed_frame = None
     import time
-    last_frame_time = time.time()
+    stop_event = asyncio.Event()
+    incoming_frames: asyncio.Queue[bytes] = asyncio.Queue(maxsize=1)
+
+    async def receiver() -> None:
+        try:
+            while True:
+                data = await websocket.receive_bytes()
+                # Keep only the latest frame to avoid unbounded buffering.
+                if incoming_frames.full():
+                    try:
+                        incoming_frames.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                await incoming_frames.put(data)
+        except WebSocketDisconnect:
+            stop_event.set()
+        except Exception:
+            stop_event.set()
+            raise
+
+    async def processor() -> None:
+        frame_skip_counter = 0
+        last_processed_frame = None
+        last_send_time = 0.0
+
+        while not stop_event.is_set():
+            try:
+                data = await asyncio.wait_for(incoming_frames.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+
+            # Drain queue to process the most recent frame.
+            while not incoming_frames.empty():
+                try:
+                    data = incoming_frames.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+
+            img_array = np.frombuffer(data, np.uint8)
+            frame = await asyncio.to_thread(cv2.imdecode, img_array, cv2.IMREAD_COLOR)
+            if frame is None:
+                continue
+
+            # Use dynamic processing resolution
+            target_width, _target_height = processing_params["processing_resolution"]
+            height, width = frame.shape[:2]
+            if width > target_width:
+                scale = target_width / width
+                new_width = target_width
+                new_height = max(1, int(height * scale))
+                frame = await asyncio.to_thread(cv2.resize, frame, (new_width, new_height))
+
+            frame_skip_counter += 1
+            frame_skip = processing_params["frame_skip"]
+            if frame_skip_counter >= frame_skip:
+                frame_skip_counter = 0
+                processed_frame = await asyncio.to_thread(process_frame_with_face_swap, frame)
+                last_processed_frame = processed_frame
+            else:
+                processed_frame = last_processed_frame if last_processed_frame is not None else frame
+
+            # Throttle *sending* to target_fps (don’t busy-loop and don’t drop responses).
+            target_fps = processing_params["target_fps"]
+            frame_interval = 1.0 / max(1, target_fps)
+            now = time.time()
+            sleep_for = (last_send_time + frame_interval) - now
+            if sleep_for > 0:
+                await asyncio.sleep(sleep_for)
+            last_send_time = time.time()
+
+            video_quality = processing_params["video_quality"]
+            ok, buffer = await asyncio.to_thread(
+                cv2.imencode,
+                '.jpg',
+                processed_frame,
+                [cv2.IMWRITE_JPEG_QUALITY, video_quality],
+            )
+            if not ok:
+                continue
+
+            await manager.send_personal_bytes(buffer.tobytes(), websocket)
+
+    recv_task = asyncio.create_task(receiver())
+    proc_task = asyncio.create_task(processor())
 
     try:
-        while True:
-            # Receive frame data
-            data = await websocket.receive_bytes()
-
-            # Convert received data to image
-            img_array = np.frombuffer(data, np.uint8)
-            frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-
-            if frame is not None:
-                # Use dynamic processing resolution
-                target_width, target_height = processing_params["processing_resolution"]
-                height, width = frame.shape[:2]
-                if width > target_width:
-                    scale = target_width / width
-                    new_width = target_width
-                    new_height = int(height * scale)
-                    frame = cv2.resize(frame, (new_width, new_height))
-
-                frame_skip_counter += 1
-
-                # Use dynamic frame skip
-                frame_skip = processing_params["frame_skip"]
-                if frame_skip_counter >= frame_skip:
-                    frame_skip_counter = 0
-                    # Process frame with face swapping
-                    processed_frame = process_frame_with_face_swap(frame)
-                    last_processed_frame = processed_frame
-                else:
-                    # Use last processed frame or original frame
-                    processed_frame = last_processed_frame if last_processed_frame is not None else frame
-
-                # FPS throttling
-                current_time = time.time()
-                target_fps = processing_params["target_fps"]
-                frame_interval = 1.0 / target_fps
-                time_diff = current_time - last_frame_time
-
-                if time_diff < frame_interval:
-                    # Skip frame to maintain target FPS
-                    continue
-
-                last_frame_time = current_time
-
-                # Use dynamic video quality
-                video_quality = processing_params["video_quality"]
-                _, buffer = cv2.imencode('.jpg', processed_frame, [cv2.IMWRITE_JPEG_QUALITY, video_quality])
-
-                # Send processed frame back
-                await manager.send_personal_bytes(buffer.tobytes(), websocket)
-
+        done, pending = await asyncio.wait({recv_task, proc_task}, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        for task in done:
+            exc = task.exception()
+            if exc is not None:
+                raise exc
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        pass
     except Exception as e:
         print(f"WebSocket error: {e}")
+    finally:
         manager.disconnect(websocket)
 
 @app.get("/status")

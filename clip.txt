@@ -1,65 +1,15 @@
-ug Log
-[1:43:09 PM] 🚀 Streaming timing test loaded
-[1:43:09 PM] 💡 Start Deep Live Cam app first, then click "Connect to Stream"
-[1:44:27 PM] Connecting to ws://localhost:8080/ws...
-[1:44:27 PM] ✅ Connected to streaming server!
-[1:44:40 PM] 📡 Received frame #1 (5239 bytes)
-[1:44:40 PM] 📊 Received stats: {"type":"stats","fps":1,"clients":1,"timestamp":1758534280762}
-[1:44:40 PM] 📡 Received frame #2 (5207 bytes)
-[1:44:40 PM] 📡 Received frame #3 (5246 bytes)
-[1:44:41 PM] 📡 Received frame #4 (5260 bytes)
-[1:44:41 PM] 📡 Received frame #5 (5053 bytes)
-[1:44:41 PM] 📡 Received frame #6 (5061 bytes)
-[1:44:41 PM] 📡 Received frame #7 (5095 bytes)
-[1:44:41 PM] 📡 Received frame #8 (5095 bytes)
-[1:44:41 PM] 📡 Received frame #9 (5095 bytes)
-[1:44:41 PM] 📡 Received frame #10 (5095 bytes)
-[1:44:41 PM] 📡 Received frame #11 (5104 bytes)
-[1:44:41 PM] 📊 Received stats: {"type":"stats","fps":10,"clients":1,"timestamp":1758534281908}
-[1:44:41 PM] 📡 Received frame #12 (5104 bytes)
-[1:44:41 PM] 📡 Received frame #13 (5104 bytes)
-[1:44:42 PM] 📡 Received frame #14 (5135 bytes)
-[1:44:42 PM] 📡 Received frame #15 (5135 bytes)
-[1:44:42 PM] 📡 Received frame #16 (5135 bytes)
-[1:44:42 PM] 📡 Received frame #17 (5089 bytes)
-[1:44:42 PM] 📡 Received frame #18 (5089 bytes)
-[1:44:42 PM] 📡 Received frame #19 (5089 bytes)
-[1:44:42 PM] 📡 Received frame #20 (5089 bytes)
-[1:44:42 PM] 📡 Received frame #21 (5208 bytes)
-[1:44:42 PM] 📡 Received frame #22 (5208 bytes)
-[1:44:42 PM] 📡 Received frame #23 (5208 bytes)
-[1:44:42 PM] 📡 Received frame #24 (5206 bytes)
-[1:44:42 PM] 📊 Received stats: {"type":"stats","fps":13,"clients":1,"timestamp":1758534282975}
-[1:44:43 PM] 📡 Received frame #25 (5206 bytes)
-[1:44:43 PM] 📡 Received frame #26 (5206 bytes)
-[1:44:43 PM] 📡 Received frame #27 (5225 bytes)
-[1:44:43 PM] 📡 Received frame #28 (5225 bytes)
-[1:44:43 PM] 📡 Received frame #29 (5225 bytes)
-[1:44:43 PM] 📡 Received frame #30 (5250 bytes)
-[1:44:43 PM] 📡 Received frame #31 (5250 bytes)
-[1:44:43 PM] 📡 Received frame #32 (5250 bytes)
-[1:44:43 PM] 📡 Received frame #33 (5287 bytes)
-[1:44:43 PM] 📡 Received frame #34 (5287 bytes)
-[1:44:43 PM] 📡 Received frame #35 (5287 bytes)
-[1:44:44 PM] 📡 Received frame #36 (5255 bytes)
-[1:44:44 PM] 📊 Received stats: {"type":"stats","fps":12,"clients":1,"timestamp":1758534284042}
-[1:44:44 PM] 📡 Received frame #37 (5255 bytes)
-[1:44:44 PM] 📡 Received frame #38 (5255 bytes)
-[1:44:44 PM] 📡 Received frame #39 (5228 bytes)
-[1:44:44 PM] 📡 Received frame #40 (5228 bytes)
-[1:44:47 PM] ⏰ 3s since last frame
-[1:44:49 PM] ⚠️ No frames received for 5 seconds
-[1:44:51 PM] ⚠️ No frames received for 7 seconds
-[1:44:53 PM] ⚠️ No frames received for 9 seconds
-[1:44:55 PM] ⚠️ No frames received for 11 seconds
-[1:44:55 PM] 💀 Stream appears to be dead (10+ seconds without frames)
-[1:44:57 PM] ⚠️ No frames received for 13 seconds
-[1:44:57 PM] 💀 Stream appears to be dead (10+ seconds without frames)
-[1:44:59 PM] ⚠️ No frames received for 15 seconds
-[1:44:59 PM] 💀 Stream appears to be dead (10+ seconds without frames)
-[1:45:01 PM] ⚠️ No frames received for 17 seconds
-[1:45:01 PM] 💀 Stream appears to be dead (10+ seconds without frames)
-[1:45:03 PM] ⚠️ No frames received for 19 seconds
-[1:45:03 PM] 💀 Stream appears to be dead (10+ seconds without frames)
-[1:45:04 PM] 🔌 Manually disconnected
-[1:45:04 PM] ❌ Disconnected from streaming server
+the app frontend/client side runs with: npm run dev
+the backend/server side runs with: python cloud-server/server.py --mode gpu --host 0.0.0.0 --port 8000
+
+functionality:
+this is a faceswap app for live feed, where the frontend client sends the camera feed to the server and the server processes it then sends it back to client via websocket protocol.
+
+the issue:
+the feed from the server is lagging and freezes.
+
+i want you to help identify where the issue lies,
+i tried deploying the backend to very capable machines but the issue still the same, which made me conclude the issue is not with machine specs.
+
+suspects:
+the websocket protocol is not being able to transfer the bandwedth.
+there is no buffering layer to ensure continious stream.
