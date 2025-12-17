@@ -408,7 +408,7 @@
 
                     <label>Target FPS:</label>
                     <input type="range" id="fpsSlider" min="15" max="60" value="30">
-                    <span id="fpsValue">30</span>
+                    <span id="fpsSettingValue">30</span>
                 </div>
             </div>
 
@@ -582,7 +582,7 @@
 
                     qualitySelect: document.getElementById('qualitySelect'),
                     fpsSlider: document.getElementById('fpsSlider'),
-                    fpsValue: document.getElementById('fpsValue'),
+                    fpsSettingValue: document.getElementById('fpsSettingValue'),
 
                     // Camera selection elements
                     cameraSelect: document.getElementById('cameraSelect'),
@@ -651,7 +651,7 @@
 
                 this.elements.fpsSlider.addEventListener('input', (e) => {
                     this.settings.targetFps = parseInt(e.target.value);
-                    this.elements.fpsValue.textContent = this.settings.targetFps;
+                    this.elements.fpsSettingValue.textContent = this.settings.targetFps;
                     this.adaptiveFrameInterval = 1000 / this.settings.targetFps;
                 });
 

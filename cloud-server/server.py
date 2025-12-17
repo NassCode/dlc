@@ -78,6 +78,7 @@ app.add_middleware(
 # Global variables
 config = None
 source_image_path = None
+source_face_cache = None
 face_swapper = None
 connected_clients = set()
 
@@ -152,26 +153,16 @@ def init_face_swapper():
 
 def process_frame_with_face_swap(frame: np.ndarray) -> np.ndarray:
     """Process a single frame with face swapping"""
-    global face_swapper, source_image_path
+    global face_swapper, source_face_cache
 
-    if not face_swapper or not source_image_path:
+    if not face_swapper or source_face_cache is None:
         return frame
 
     try:
         # Create a temporary copy for processing
         temp_frame = frame.copy()
 
-        # Load source image
-        source_image = cv2.imread(source_image_path)
-        if source_image is None:
-            print(f"Failed to load source image: {source_image_path}")
-            return frame
-
-        # Get source face
-        source_face = get_one_face(source_image)
-        if not source_face:
-            print("No source face detected")
-            return frame
+        source_face = source_face_cache
 
         # Get target faces from current frame (limited by max_faces parameter)
         max_faces = processing_params["max_faces"]
@@ -186,9 +177,10 @@ def process_frame_with_face_swap(frame: np.ndarray) -> np.ndarray:
         if not target_faces:
             return frame
 
+        from modules.processors.frame.face_swapper import swap_face
+
         # Process each face
         for target_face in target_faces:
-            from modules.processors.frame.face_swapper import swap_face
             temp_frame = swap_face(source_face, target_face, temp_frame)
 
         # Apply face enhancement if enabled
@@ -234,7 +226,7 @@ async def health_check():
 @app.post("/upload-source")
 async def upload_source_image(file: UploadFile = File(...)):
     """Upload source image for face swapping"""
-    global source_image_path
+    global source_image_path, source_face_cache
 
     if not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="File must be an image")
@@ -259,6 +251,9 @@ async def upload_source_image(file: UploadFile = File(...)):
         face = get_one_face(test_image)
         if not face:
             raise HTTPException(status_code=400, detail="No face detected in source image")
+
+        # Cache the source face so we don't re-run detection every frame.
+        source_face_cache = face
 
         print(f"Source image uploaded: {source_image_path}")
         return {"message": "Source image uploaded successfully", "filename": file.filename}
