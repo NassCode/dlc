@@ -535,7 +535,7 @@
                 // Allow a small amount of pipelining so client JPEG encode can overlap
                 // server processing (otherwise FPS becomes roughly encode+process serial).
                 this.inFlightTimestamps = [];
-                this.maxInFlight = 2;
+                this.maxInFlight = 3;
                 this.maxInFlightAgeMs = 2000;
                 this.serverUrl = 'ws://localhost:8000';
 
@@ -568,6 +568,10 @@
                     processingTimes: [],
                     memoryUsage: 0
                 };
+
+                // Capture/encode resolution (matches server processing resolution when possible)
+                this.captureWidth = 640;
+                this.captureHeight = 480;
 
                 // Jitter buffer / playback
                 this.bufferLatencyMs = 0;
@@ -602,6 +606,34 @@
                 this.detectDesktopApp();
                 this.startPerformanceMonitoring();
                 this.enumerateCameras();
+            }
+
+            setCaptureResolution(width, height) {
+                const w = Math.max(64, parseInt(width || 0));
+                const h = Math.max(64, parseInt(height || 0));
+                if (!Number.isFinite(w) || !Number.isFinite(h)) return;
+
+                this.captureWidth = w;
+                this.captureHeight = h;
+
+                if (this.offscreenCanvas) {
+                    this.offscreenCanvas.width = w;
+                    this.offscreenCanvas.height = h;
+
+                    // Some Chromium builds reset canvas state on resize; reacquire context.
+                    // This helps ensure convertToBlob encodes at the new size.
+                    this.offscreenCtx = this.offscreenCanvas.getContext('2d');
+                }
+
+                // If camera is running, try to apply matching constraints.
+                try {
+                    const track = this.mediaStream?.getVideoTracks?.()[0];
+                    if (track && typeof track.applyConstraints === 'function') {
+                        track.applyConstraints({ width: w, height: h }).catch(() => {});
+                    }
+                } catch (_) {
+                    // ignore
+                }
             }
 
             initializeElements() {
@@ -679,8 +711,14 @@
                 this.elements.processedCanvas.height = 480;
 
                 // Create offscreen canvas for optimized processing
-                this.offscreenCanvas = new OffscreenCanvas(640, 480);
+                this.offscreenCanvas = new OffscreenCanvas(this.captureWidth, this.captureHeight);
                 this.offscreenCtx = this.offscreenCanvas.getContext('2d');
+
+                // If a processing resolution is selected, match capture/encode to it.
+                if (this.elements.processingResolutionSelect && this.elements.processingResolutionSelect.value) {
+                    const [w, h] = this.elements.processingResolutionSelect.value.split('x').map(n => parseInt(n));
+                    if (w && h) this.setCaptureResolution(w, h);
+                }
             }
 
             setupEventListeners() {
@@ -967,8 +1005,8 @@
                     // Use selected camera or default
                     const constraints = {
                         video: {
-                            width: 640,
-                            height: 480,
+                            width: this.captureWidth,
+                            height: this.captureHeight,
                             frameRate: { ideal: this.settings.targetFps }
                         }
                     };
@@ -1085,7 +1123,7 @@
                 const processStart = performance.now();
 
                 // Use offscreen canvas for better performance
-                this.offscreenCtx.drawImage(this.elements.localVideo, 0, 0, 640, 480);
+                this.offscreenCtx.drawImage(this.elements.localVideo, 0, 0, this.captureWidth, this.captureHeight);
 
                 // Convert to blob asynchronously
                 this.offscreenCanvas.convertToBlob({
@@ -1571,6 +1609,14 @@
                     if (result.status === 'success') {
                         this.updateParametersStatus('✓ Parameters applied successfully', 'success');
                         console.log('Parameters updated:', result.updated_params);
+
+                        // Match capture resolution to server processing resolution.
+                        try {
+                            const [w, h] = this.elements.processingResolutionSelect.value.split('x').map(n => parseInt(n));
+                            if (w && h) this.setCaptureResolution(w, h);
+                        } catch (_) {
+                            // ignore
+                        }
                     } else {
                         this.updateParametersStatus(`✗ Failed to apply parameters: ${result.message || result.error || 'Unknown error'}`, 'error');
                     }
@@ -1625,6 +1671,9 @@
                             if (this.elements.processingResolutionSelect) {
                                 this.elements.processingResolutionSelect.value = key;
                             }
+
+                            // Match capture resolution to server processing resolution.
+                            this.setCaptureResolution(w, h);
                         }
 
                         this.updateParametersStatus('✓ Parameters loaded from server', 'success');
@@ -1656,6 +1705,8 @@
                 if (this.elements.processingResolutionSelect) {
                     this.elements.processingResolutionSelect.value = '640x480';
                 }
+
+                this.setCaptureResolution(640, 480);
 
                 this.updateParametersStatus('Parameters reset to defaults', 'info');
             }
