@@ -7,6 +7,8 @@ import json
 import base64
 import io
 import asyncio
+import time
+from collections import deque
 from typing import Optional, Dict, Any
 import logging
 
@@ -82,6 +84,142 @@ source_image_path = None
 source_face_cache = None
 face_swapper = None
 connected_clients = set()
+
+
+class RollingMs:
+    def __init__(self, maxlen: int = 180):
+        self._values: deque[float] = deque(maxlen=maxlen)
+
+    def add(self, ms: float) -> None:
+        self._values.append(float(ms))
+
+    def summary(self) -> Dict[str, Any]:
+        if not self._values:
+            return {
+                "count": 0,
+                "avg_ms": None,
+                "p50_ms": None,
+                "p95_ms": None,
+                "max_ms": None,
+                "last_ms": None,
+            }
+        vals = list(self._values)
+        vals_sorted = sorted(vals)
+        n = len(vals_sorted)
+
+        def _percentile(p: float) -> float:
+            if n == 1:
+                return vals_sorted[0]
+            idx = int(round((p / 100.0) * (n - 1)))
+            return vals_sorted[max(0, min(n - 1, idx))]
+
+        return {
+            "count": n,
+            "avg_ms": sum(vals) / n,
+            "p50_ms": _percentile(50),
+            "p95_ms": _percentile(95),
+            "max_ms": max(vals),
+            "last_ms": vals[-1],
+        }
+
+
+profiling_enabled = False
+timings: Dict[str, RollingMs] = {
+    "ws_wait": RollingMs(),
+    "decode": RollingMs(),
+    "resize": RollingMs(),
+    "detect": RollingMs(),
+    "swap": RollingMs(),
+    "enhance": RollingMs(),
+    "encode": RollingMs(),
+    "send": RollingMs(),
+    "loop_total": RollingMs(),
+}
+
+perf_counters: Dict[str, int] = {
+    "frames_received": 0,
+    "frames_decoded": 0,
+    "frames_decode_failed": 0,
+    "frames_processed": 0,
+    "frames_skipped": 0,
+    "frames_encoded": 0,
+    "frames_sent": 0,
+}
+
+
+def _ms_since(start: float) -> float:
+    return (time.perf_counter() - start) * 1000.0
+
+
+def _safe_onnxruntime_info() -> Dict[str, Any]:
+    try:
+        import onnxruntime as ort  # type: ignore
+
+        device = None
+        try:
+            device = ort.get_device()
+        except Exception:
+            device = None
+
+        return {
+            "device": device,
+            "available_providers": ort.get_available_providers(),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _safe_insightface_session_info() -> Dict[str, Any]:
+    info: Dict[str, Any] = {}
+
+    # Face analyser sessions
+    try:
+        analyser = modules.face_analyser.FACE_ANALYSER
+        if analyser is None:
+            info["face_analyser"] = None
+        else:
+            models_info: Dict[str, Any] = {}
+            models = getattr(analyser, "models", None)
+            if isinstance(models, dict):
+                for model_name, model in models.items():
+                    session = getattr(model, "session", None)
+                    if session is not None and hasattr(session, "get_providers"):
+                        try:
+                            models_info[str(model_name)] = {
+                                "providers": session.get_providers(),
+                                "provider_options": getattr(session, "get_provider_options", lambda: None)(),
+                            }
+                        except Exception:
+                            models_info[str(model_name)] = {"providers": None}
+                    else:
+                        models_info[str(model_name)] = {"providers": None}
+            info["face_analyser"] = {
+                "prepared": True,
+                "models": models_info,
+            }
+    except Exception as e:
+        info["face_analyser"] = {"error": str(e)}
+
+    # Face swapper session
+    try:
+        from modules.processors.frame import face_swapper as fs  # lazy import
+
+        swapper = getattr(fs, "FACE_SWAPPER", None)
+        if swapper is None:
+            info["face_swapper"] = None
+        else:
+            session = getattr(swapper, "session", None)
+            if session is not None and hasattr(session, "get_providers"):
+                info["face_swapper"] = {
+                    "providers": session.get_providers(),
+                    "provider_options": getattr(session, "get_provider_options", lambda: None)(),
+                }
+            else:
+                info["face_swapper"] = {"providers": None}
+    except Exception as e:
+        info["face_swapper"] = {"error": str(e)}
+
+    return info
 
 # Dynamic processing parameters
 processing_params = {
@@ -178,6 +316,7 @@ def process_frame_with_face_swap(frame: np.ndarray) -> np.ndarray:
         source_face = source_face_cache
 
         # Get target faces from current frame (limited by max_faces parameter)
+        detect_start = time.perf_counter()
         max_faces = processing_params["max_faces"]
         if max_faces == 1:
             target_face = get_one_face(temp_frame)
@@ -187,21 +326,30 @@ def process_frame_with_face_swap(frame: np.ndarray) -> np.ndarray:
             if len(target_faces) > max_faces:
                 target_faces = target_faces[:max_faces]
 
+        if profiling_enabled:
+            timings["detect"].add(_ms_since(detect_start))
+
         if not target_faces:
             return frame
 
         from modules.processors.frame.face_swapper import swap_face
 
         # Process each face
+        swap_start = time.perf_counter()
         for target_face in target_faces:
             temp_frame = swap_face(source_face, target_face, temp_frame)
+        if profiling_enabled:
+            timings["swap"].add(_ms_since(swap_start))
 
         # Apply face enhancement if enabled
         if processing_params["enable_face_enhancer"]:
             try:
                 from modules.processors.frame.face_enhancer import enhance_face
+                enhance_start = time.perf_counter()
                 for target_face in target_faces:
                     temp_frame = enhance_face(target_face, temp_frame)
+                if profiling_enabled:
+                    timings["enhance"].add(_ms_since(enhance_start))
             except ImportError:
                 # Face enhancer not available, skip
                 pass
@@ -315,7 +463,6 @@ async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time video processing"""
     await manager.connect(websocket)
 
-    import time
     stop_event = asyncio.Event()
     incoming_frames: asyncio.Queue[bytes] = asyncio.Queue(maxsize=1)
 
@@ -323,6 +470,7 @@ async def websocket_endpoint(websocket: WebSocket):
         try:
             while True:
                 data = await websocket.receive_bytes()
+                perf_counters["frames_received"] += 1
                 # Keep only the latest frame to avoid unbounded buffering.
                 if incoming_frames.full():
                     try:
@@ -342,8 +490,12 @@ async def websocket_endpoint(websocket: WebSocket):
         last_send_time = 0.0
 
         while not stop_event.is_set():
+            loop_start = time.perf_counter()
             try:
+                wait_start = time.perf_counter()
                 data = await asyncio.wait_for(incoming_frames.get(), timeout=1.0)
+                if profiling_enabled:
+                    timings["ws_wait"].add(_ms_since(wait_start))
             except asyncio.TimeoutError:
                 continue
 
@@ -355,9 +507,14 @@ async def websocket_endpoint(websocket: WebSocket):
                     break
 
             img_array = np.frombuffer(data, np.uint8)
+            decode_start = time.perf_counter()
             frame = await asyncio.to_thread(cv2.imdecode, img_array, cv2.IMREAD_COLOR)
+            if profiling_enabled:
+                timings["decode"].add(_ms_since(decode_start))
             if frame is None:
+                perf_counters["frames_decode_failed"] += 1
                 continue
+            perf_counters["frames_decoded"] += 1
 
             # Use dynamic processing resolution
             target_width, _target_height = processing_params["processing_resolution"]
@@ -366,16 +523,24 @@ async def websocket_endpoint(websocket: WebSocket):
                 scale = target_width / width
                 new_width = target_width
                 new_height = max(1, int(height * scale))
+                resize_start = time.perf_counter()
                 frame = await asyncio.to_thread(cv2.resize, frame, (new_width, new_height))
+                if profiling_enabled:
+                    timings["resize"].add(_ms_since(resize_start))
 
             frame_skip_counter += 1
             frame_skip = processing_params["frame_skip"]
             if frame_skip_counter >= frame_skip:
                 frame_skip_counter = 0
+                swap_start = time.perf_counter()
                 processed_frame = await asyncio.to_thread(process_frame_with_face_swap, frame)
+                if profiling_enabled:
+                    timings["swap"].add(_ms_since(swap_start))
                 last_processed_frame = processed_frame
+                perf_counters["frames_processed"] += 1
             else:
                 processed_frame = last_processed_frame if last_processed_frame is not None else frame
+                perf_counters["frames_skipped"] += 1
 
             # Throttle *sending* to target_fps (don’t busy-loop and don’t drop responses).
             target_fps = processing_params["target_fps"]
@@ -387,16 +552,26 @@ async def websocket_endpoint(websocket: WebSocket):
             last_send_time = time.time()
 
             video_quality = processing_params["video_quality"]
+            encode_start = time.perf_counter()
             ok, buffer = await asyncio.to_thread(
                 cv2.imencode,
                 '.jpg',
                 processed_frame,
                 [cv2.IMWRITE_JPEG_QUALITY, video_quality],
             )
+            if profiling_enabled:
+                timings["encode"].add(_ms_since(encode_start))
             if not ok:
                 continue
 
+            perf_counters["frames_encoded"] += 1
+
+            send_start = time.perf_counter()
             await manager.send_personal_bytes(buffer.tobytes(), websocket)
+            if profiling_enabled:
+                timings["send"].add(_ms_since(send_start))
+                timings["loop_total"].add(_ms_since(loop_start))
+            perf_counters["frames_sent"] += 1
 
     recv_task = asyncio.create_task(receiver())
     proc_task = asyncio.create_task(processor())
@@ -433,7 +608,17 @@ async def get_detailed_status():
         "connections": {
             "active_clients": len(connected_clients),
             "total_connections": len(manager.active_connections)
-        }
+        },
+        "profiling": {
+            "enabled": profiling_enabled,
+            "counters": perf_counters,
+            "timings_ms": {name: stat.summary() for name, stat in timings.items()},
+        },
+        "runtime": {
+            "onnxruntime": _safe_onnxruntime_info(),
+            "insightface_sessions": _safe_insightface_session_info(),
+            "detector_size": getattr(modules.globals, "detector_size", None),
+        },
     }
 
 def parse_args():
@@ -462,10 +647,17 @@ def parse_args():
         default="info",
         help="Log level (default: info)"
     )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Enable lightweight per-stage profiling in /status"
+    )
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
+
+    profiling_enabled = bool(args.profile)
 
     print("=" * 60)
     print("🚀 Deep-Live-Cam Cloud Server")
@@ -482,6 +674,10 @@ if __name__ == "__main__":
     _set_detector_size_from_resolution(processing_params.get("processing_resolution"))
 
     print(f"Execution providers: {modules.globals.execution_providers}")
+    if profiling_enabled:
+        print("Profiling: ENABLED (see /status)")
+    else:
+        print("Profiling: disabled (pass --profile to enable)")
 
     # Initialize face swapper
     if init_face_swapper():

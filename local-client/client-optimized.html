@@ -1175,33 +1175,30 @@
                 const tick = () => {
                     if (!this.isProcessing) return;
 
-                    const renderIntervalMs = 1000 / Math.max(1, this.settings.targetFps);
-                    const minFrames = Math.max(0, Math.ceil(this.bufferLatencyMs / renderIntervalMs));
                     const now = Date.now();
 
-                    // Prime buffer: wait until we have enough frames to cover configured latency.
-                    if (!this.bufferPrimed && this.bufferLatencyMs > 0) {
-                        if (this.bufferQueue.length < minFrames) {
-                            return;
-                        }
-                        this.bufferPrimed = true;
-                    }
-
+                    // Enforce constant added latency:
+                    // only render a queued frame once it has aged at least bufferLatencyMs.
                     let frame = null;
                     if (this.bufferQueue.length > 0) {
-                        frame = this.bufferQueue.shift();
+                        const oldest = this.bufferQueue[0];
+                        const ageMs = Math.max(0, now - oldest.receivedAt);
+                        if (ageMs >= this.bufferLatencyMs) {
+                            frame = this.bufferQueue.shift();
 
-                        // Replace last rendered bitmap (keep one for repeats)
-                        if (this.lastRenderedBitmap && typeof this.lastRenderedBitmap.close === 'function') {
-                            this.lastRenderedBitmap.close();
+                            // Replace last rendered bitmap (keep one for repeats)
+                            if (this.lastRenderedBitmap && typeof this.lastRenderedBitmap.close === 'function') {
+                                this.lastRenderedBitmap.close();
+                            }
+                            this.lastRenderedBitmap = frame.bitmap;
+
+                            // Total latency includes processing latency + time aged since receipt.
+                            this.stats.latency = Math.round(frame.processingLatencyMs + ageMs);
                         }
-                        this.lastRenderedBitmap = frame.bitmap;
+                    }
 
-                        // Total latency includes processing latency + time spent in buffer.
-                        const timeInBuffer = Math.max(0, now - frame.receivedAt);
-                        this.stats.latency = Math.round(frame.processingLatencyMs + timeInBuffer);
-                    } else {
-                        // Underflow: repeat last frame to keep smooth render cadence.
+                    if (!frame) {
+                        // Underflow or not-yet-old-enough: repeat last frame.
                         if (this.lastRenderedBitmap) {
                             this.stats.bufferRepeated++;
                         }
