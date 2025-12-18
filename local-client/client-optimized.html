@@ -532,7 +532,11 @@
                 this.websocket = null;
                 this.mediaStream = null;
                 this.isProcessing = false;
-                this.awaitingResponse = false;
+                // Allow a small amount of pipelining so client JPEG encode can overlap
+                // server processing (otherwise FPS becomes roughly encode+process serial).
+                this.inFlightTimestamps = [];
+                this.maxInFlight = 2;
+                this.maxInFlightAgeMs = 2000;
                 this.serverUrl = 'ws://localhost:8000';
 
                 // Optimized settings
@@ -1028,7 +1032,7 @@
                 }
 
                 this.isProcessing = true;
-                this.awaitingResponse = false;
+                this.inFlightTimestamps = [];
                 this.elements.startProcessingBtn.disabled = true;
                 this.elements.stopProcessingBtn.disabled = false;
                 this.updateStatus('✓ Optimized processing started', 'success');
@@ -1038,7 +1042,7 @@
 
             stopProcessing() {
                 this.isProcessing = false;
-                this.awaitingResponse = false;
+                this.inFlightTimestamps = [];
                 this.stopPlaybackLoop();
                 this.elements.startProcessingBtn.disabled = false;
                 this.elements.stopProcessingBtn.disabled = true;
@@ -1048,15 +1052,22 @@
             processFramesOptimized() {
                 if (!this.isProcessing) return;
 
-                // Backpressure: keep at most one frame in-flight.
-                if (this.awaitingResponse) {
+                // Clean up very old in-flight entries (server may drop frames).
+                const nowWall = Date.now();
+                while (this.inFlightTimestamps.length > 0 && (nowWall - this.inFlightTimestamps[0]) > this.maxInFlightAgeMs) {
+                    this.inFlightTimestamps.shift();
+                    this.stats.captureDropped++;
+                }
+
+                // Bounded pipelining: allow a couple of frames in-flight.
+                if (this.inFlightTimestamps.length >= this.maxInFlight) {
                     requestAnimationFrame(() => this.processFramesOptimized());
                     return;
                 }
 
                 // Avoid building up large browser-side send buffers on slow links.
                 if (this.websocket && this.websocket.bufferedAmount > 2_000_000) {
-                    this.stats.framesDropped++;
+                    this.stats.captureDropped++;
                     requestAnimationFrame(() => this.processFramesOptimized());
                     return;
                 }
@@ -1082,8 +1093,9 @@
                     quality: this.settings.quality
                 }).then(blob => {
                     if (blob && this.websocket && this.websocket.readyState === WebSocket.OPEN) {
-                        this.awaitingResponse = true;
-                        this.lastSendTimestamp = Date.now();
+                        const sentAt = Date.now();
+                        this.lastSendTimestamp = sentAt;
+                        this.inFlightTimestamps.push(sentAt);
                         this.websocket.send(blob);
                         this.stats.framesSent++;
 
@@ -1132,9 +1144,10 @@
 
             handleProcessedFrame(blob) {
                 const receivedAt = Date.now();
-                const processingLatencyMs = this.lastSendTimestamp ? Math.max(0, receivedAt - this.lastSendTimestamp) : 0;
+                // Best-effort latency: associate this response with the oldest in-flight send.
+                const associatedSentAt = this.inFlightTimestamps.length > 0 ? this.inFlightTimestamps.shift() : this.lastSendTimestamp;
+                const processingLatencyMs = associatedSentAt ? Math.max(0, receivedAt - associatedSentAt) : 0;
                 this.stats.framesReceived++;
-                this.awaitingResponse = false;
 
                 const enqueueBitmap = (bitmap) => {
                     this.bufferQueue.push({

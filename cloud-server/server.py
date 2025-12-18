@@ -131,6 +131,7 @@ timings: Dict[str, RollingMs] = {
     "detect": RollingMs(),
     "swap": RollingMs(),
     "enhance": RollingMs(),
+    "process_total": RollingMs(),
     "encode": RollingMs(),
     "send": RollingMs(),
     "loop_total": RollingMs(),
@@ -532,10 +533,10 @@ async def websocket_endpoint(websocket: WebSocket):
             frame_skip = processing_params["frame_skip"]
             if frame_skip_counter >= frame_skip:
                 frame_skip_counter = 0
-                swap_start = time.perf_counter()
+                process_start = time.perf_counter()
                 processed_frame = await asyncio.to_thread(process_frame_with_face_swap, frame)
                 if profiling_enabled:
-                    timings["swap"].add(_ms_since(swap_start))
+                    timings["process_total"].add(_ms_since(process_start))
                 last_processed_frame = processed_frame
                 perf_counters["frames_processed"] += 1
             else:
