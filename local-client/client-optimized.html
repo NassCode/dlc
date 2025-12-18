@@ -409,6 +409,10 @@
                     <label>Target FPS:</label>
                     <input type="range" id="fpsSlider" min="15" max="60" value="30">
                     <span id="fpsSettingValue">30</span>
+
+                    <label>Added Latency (ms):</label>
+                    <input type="range" id="bufferLatencySlider" min="0" max="2000" step="50" value="0">
+                    <span id="bufferLatencyValue">0</span>
                 </div>
             </div>
 
@@ -437,6 +441,17 @@
                     <label>Max Faces:</label>
                     <input type="range" id="maxFacesSlider" min="1" max="5" value="1">
                     <span id="maxFacesValue">1</span>
+                </div>
+
+                <div class="optimization-controls">
+                    <label>Processing Resolution:</label>
+                    <select id="processingResolutionSelect">
+                        <option value="320x240">320 x 240</option>
+                        <option value="480x360">480 x 360</option>
+                        <option value="640x480" selected>640 x 480</option>
+                        <option value="960x540">960 x 540</option>
+                        <option value="1280x720">1280 x 720</option>
+                    </select>
                 </div>
 
                 <div class="optimization-controls">
@@ -475,19 +490,23 @@
                 <div class="stats">
                     <div class="stat-box">
                         <div class="stat-value" id="fpsValue">0</div>
-                        <div class="stat-label">FPS</div>
+                        <div class="stat-label">Render FPS</div>
                     </div>
                     <div class="stat-box">
                         <div class="stat-value" id="latencyValue">0</div>
-                        <div class="stat-label">Latency (ms)</div>
+                        <div class="stat-label">Total Latency (ms)</div>
                     </div>
                     <div class="stat-box">
-                        <div class="stat-value" id="framesValue">0</div>
-                        <div class="stat-label">Frames Processed</div>
+                        <div class="stat-value" id="processedFpsValue">0</div>
+                        <div class="stat-label">Processed FPS</div>
                     </div>
                     <div class="stat-box">
                         <div class="stat-value" id="dropRateValue">0</div>
                         <div class="stat-label">Drop Rate (%)</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" id="repeatRateValue">0</div>
+                        <div class="stat-label">Repeat Rate (%)</div>
                     </div>
                 </div>
             </div>
@@ -533,13 +552,33 @@
                 // Performance tracking
                 this.stats = {
                     fps: 0,
+                    processedFps: 0,
                     latency: 0,
-                    framesProcessed: 0,
-                    framesDropped: 0,
-                    lastFrameTime: 0,
+                    framesSent: 0,
+                    framesReceived: 0,
+                    framesRendered: 0,
+                    bufferDropped: 0,
+                    bufferRepeated: 0,
+                    captureDropped: 0,
+                    decodeDropped: 0,
                     processingTimes: [],
                     memoryUsage: 0
                 };
+
+                // Jitter buffer / playback
+                this.bufferLatencyMs = 0;
+                this.bufferQueue = [];
+                this.bufferPrimed = false;
+                this.playbackIntervalId = null;
+                this.lastRenderedBitmap = null;
+
+                // One-in-flight send/receive timing
+                this.lastSendTimestamp = 0;
+
+                // Stats helper counters
+                this.lastStatsUpdate = 0;
+                this.lastRenderCount = 0;
+                this.lastReceiveCount = 0;
 
                 // Frame management
                 this.frameBuffer = [];
@@ -583,6 +622,8 @@
                     qualitySelect: document.getElementById('qualitySelect'),
                     fpsSlider: document.getElementById('fpsSlider'),
                     fpsSettingValue: document.getElementById('fpsSettingValue'),
+                    bufferLatencySlider: document.getElementById('bufferLatencySlider'),
+                    bufferLatencyValue: document.getElementById('bufferLatencyValue'),
 
                     // Camera selection elements
                     cameraSelect: document.getElementById('cameraSelect'),
@@ -592,9 +633,10 @@
                     processedCanvas: document.getElementById('processedCanvas'),
 
                     fpsValue: document.getElementById('fpsValue'),
+                    processedFpsValue: document.getElementById('processedFpsValue'),
                     latencyValue: document.getElementById('latencyValue'),
-                    framesValue: document.getElementById('framesValue'),
                     dropRateValue: document.getElementById('dropRateValue'),
+                    repeatRateValue: document.getElementById('repeatRateValue'),
                     inputFps: document.getElementById('inputFps'),
                     outputFps: document.getElementById('outputFps'),
 
@@ -621,6 +663,7 @@
                     targetFpsValue: document.getElementById('targetFpsValue'),
                     maxFacesSlider: document.getElementById('maxFacesSlider'),
                     maxFacesValue: document.getElementById('maxFacesValue'),
+                    processingResolutionSelect: document.getElementById('processingResolutionSelect'),
                     faceEnhancerCheckbox: document.getElementById('faceEnhancerCheckbox'),
                     applyParametersBtn: document.getElementById('applyParametersBtn'),
                     resetParametersBtn: document.getElementById('resetParametersBtn'),
@@ -653,6 +696,17 @@
                     this.settings.targetFps = parseInt(e.target.value);
                     this.elements.fpsSettingValue.textContent = this.settings.targetFps;
                     this.adaptiveFrameInterval = 1000 / this.settings.targetFps;
+
+                    // Update playback cadence if running.
+                    if (this.playbackIntervalId) {
+                        this.stopPlaybackLoop();
+                        this.startPlaybackLoop();
+                    }
+                });
+
+                this.elements.bufferLatencySlider.addEventListener('input', (e) => {
+                    this.bufferLatencyMs = parseInt(e.target.value);
+                    this.elements.bufferLatencyValue.textContent = this.bufferLatencyMs;
                 });
 
                 // File upload
@@ -978,12 +1032,14 @@
                 this.elements.startProcessingBtn.disabled = true;
                 this.elements.stopProcessingBtn.disabled = false;
                 this.updateStatus('✓ Optimized processing started', 'success');
+                this.startPlaybackLoop();
                 this.processFramesOptimized();
             }
 
             stopProcessing() {
                 this.isProcessing = false;
                 this.awaitingResponse = false;
+                this.stopPlaybackLoop();
                 this.elements.startProcessingBtn.disabled = false;
                 this.elements.stopProcessingBtn.disabled = true;
                 this.updateStatus('Processing stopped', 'info');
@@ -1027,9 +1083,9 @@
                 }).then(blob => {
                     if (blob && this.websocket && this.websocket.readyState === WebSocket.OPEN) {
                         this.awaitingResponse = true;
-                        this.stats.lastFrameTime = Date.now();
+                        this.lastSendTimestamp = Date.now();
                         this.websocket.send(blob);
-                        this.stats.framesProcessed++;
+                        this.stats.framesSent++;
 
                         // Track processing time
                         const processTime = performance.now() - processStart;
@@ -1048,7 +1104,7 @@
                     requestAnimationFrame(() => this.processFramesOptimized());
                 }).catch(error => {
                     console.error('Frame processing error:', error);
-                    this.stats.framesDropped++;
+                    this.stats.captureDropped++;
                     requestAnimationFrame(() => this.processFramesOptimized());
                 });
             }
@@ -1075,49 +1131,110 @@
             }
 
             handleProcessedFrame(blob) {
-                const now = Date.now();
-                const latency = now - this.stats.lastFrameTime;
-                this.stats.latency = latency;
+                const receivedAt = Date.now();
+                const processingLatencyMs = this.lastSendTimestamp ? Math.max(0, receivedAt - this.lastSendTimestamp) : 0;
+                this.stats.framesReceived++;
+                this.awaitingResponse = false;
 
-                const afterDraw = () => {
-                    // AUTOMATICALLY send processed frame to streaming system
-                    if (this.isDesktopApp && window.virtualCamera) {
-                        // (streaming server runs independently of virtual camera state)
-                        this.sendFrameToVirtualCameraOptimized(blob);
+                const enqueueBitmap = (bitmap) => {
+                    this.bufferQueue.push({
+                        bitmap,
+                        receivedAt,
+                        processingLatencyMs
+                    });
+
+                    // Prevent unbounded growth: cap queue based on configured latency.
+                    const renderIntervalMs = 1000 / Math.max(1, this.settings.targetFps);
+                    const minFrames = Math.max(0, Math.ceil(this.bufferLatencyMs / renderIntervalMs));
+                    const maxFrames = minFrames + Math.max(1, Math.ceil(this.settings.targetFps)); // ~+1s headroom
+
+                    while (this.bufferQueue.length > maxFrames) {
+                        const dropped = this.bufferQueue.shift();
+                        if (dropped && dropped.bitmap && typeof dropped.bitmap.close === 'function') dropped.bitmap.close();
+                        this.stats.bufferDropped++;
                     }
-                    this.awaitingResponse = false;
                 };
 
                 if (typeof createImageBitmap === 'function') {
                     createImageBitmap(blob).then((bitmap) => {
-                        this.ctx.drawImage(bitmap, 0, 0, this.elements.processedCanvas.width, this.elements.processedCanvas.height);
-                        if (typeof bitmap.close === 'function') bitmap.close();
-                        afterDraw();
+                        enqueueBitmap(bitmap);
                     }).catch(() => {
-                        const reader = new FileReader();
-                        reader.onload = (e) => {
-                            const img = new Image();
-                            img.onload = () => {
-                                this.ctx.drawImage(img, 0, 0, this.elements.processedCanvas.width, this.elements.processedCanvas.height);
-                                afterDraw();
-                            };
-                            img.src = e.target.result;
-                        };
-                        reader.readAsDataURL(blob);
+                        this.stats.decodeDropped++;
                     });
                     return;
                 }
+            }
 
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        this.ctx.drawImage(img, 0, 0, this.elements.processedCanvas.width, this.elements.processedCanvas.height);
-                        afterDraw();
-                    };
-                    img.src = e.target.result;
+            startPlaybackLoop() {
+                if (this.playbackIntervalId) return;
+
+                // Reset playback state
+                this.bufferQueue = [];
+                this.bufferPrimed = false;
+
+                const tick = () => {
+                    if (!this.isProcessing) return;
+
+                    const renderIntervalMs = 1000 / Math.max(1, this.settings.targetFps);
+                    const minFrames = Math.max(0, Math.ceil(this.bufferLatencyMs / renderIntervalMs));
+                    const now = Date.now();
+
+                    // Prime buffer: wait until we have enough frames to cover configured latency.
+                    if (!this.bufferPrimed && this.bufferLatencyMs > 0) {
+                        if (this.bufferQueue.length < minFrames) {
+                            return;
+                        }
+                        this.bufferPrimed = true;
+                    }
+
+                    let frame = null;
+                    if (this.bufferQueue.length > 0) {
+                        frame = this.bufferQueue.shift();
+
+                        // Replace last rendered bitmap (keep one for repeats)
+                        if (this.lastRenderedBitmap && typeof this.lastRenderedBitmap.close === 'function') {
+                            this.lastRenderedBitmap.close();
+                        }
+                        this.lastRenderedBitmap = frame.bitmap;
+
+                        // Total latency includes processing latency + time spent in buffer.
+                        const timeInBuffer = Math.max(0, now - frame.receivedAt);
+                        this.stats.latency = Math.round(frame.processingLatencyMs + timeInBuffer);
+                    } else {
+                        // Underflow: repeat last frame to keep smooth render cadence.
+                        if (this.lastRenderedBitmap) {
+                            this.stats.bufferRepeated++;
+                        }
+                    }
+
+                    if (this.lastRenderedBitmap) {
+                        this.ctx.drawImage(this.lastRenderedBitmap, 0, 0, this.elements.processedCanvas.width, this.elements.processedCanvas.height);
+                        this.stats.framesRendered++;
+                    }
                 };
-                reader.readAsDataURL(blob);
+
+                const intervalMs = Math.max(5, Math.round(1000 / Math.max(1, this.settings.targetFps)));
+                this.playbackIntervalId = setInterval(tick, intervalMs);
+            }
+
+            stopPlaybackLoop() {
+                if (this.playbackIntervalId) {
+                    clearInterval(this.playbackIntervalId);
+                    this.playbackIntervalId = null;
+                }
+
+                if (this.bufferQueue && this.bufferQueue.length) {
+                    for (const item of this.bufferQueue) {
+                        if (item && item.bitmap && typeof item.bitmap.close === 'function') item.bitmap.close();
+                    }
+                }
+                this.bufferQueue = [];
+                this.bufferPrimed = false;
+
+                if (this.lastRenderedBitmap && typeof this.lastRenderedBitmap.close === 'function') {
+                    this.lastRenderedBitmap.close();
+                }
+                this.lastRenderedBitmap = null;
             }
 
             async sendFrameToVirtualCameraOptimized(blob) {
@@ -1148,20 +1265,24 @@
                     const now = Date.now();
                     if (this.lastStatsUpdate) {
                         const timeDiff = now - this.lastStatsUpdate;
-                        this.stats.fps = Math.round((this.stats.framesProcessed - this.lastFrameCount) * 1000 / timeDiff);
+                        this.stats.fps = Math.round((this.stats.framesRendered - this.lastRenderCount) * 1000 / timeDiff);
+                        this.stats.processedFps = Math.round((this.stats.framesReceived - this.lastReceiveCount) * 1000 / timeDiff);
                     }
                     this.lastStatsUpdate = now;
-                    this.lastFrameCount = this.stats.framesProcessed;
+                    this.lastRenderCount = this.stats.framesRendered;
+                    this.lastReceiveCount = this.stats.framesReceived;
 
                     // Calculate drop rate
-                    const totalFrames = this.stats.framesProcessed + this.stats.framesDropped;
-                    const dropRate = totalFrames > 0 ? (this.stats.framesDropped / totalFrames * 100).toFixed(1) : 0;
+                    const totalReceived = this.stats.framesReceived + this.stats.bufferDropped;
+                    const dropRate = totalReceived > 0 ? (this.stats.bufferDropped / totalReceived * 100).toFixed(1) : 0;
+                    const repeatRate = this.stats.framesRendered > 0 ? (this.stats.bufferRepeated / this.stats.framesRendered * 100).toFixed(1) : 0;
 
                     // Update UI
                     this.elements.fpsValue.textContent = this.stats.fps;
                     this.elements.latencyValue.textContent = this.stats.latency;
-                    this.elements.framesValue.textContent = this.stats.framesProcessed;
+                    this.elements.processedFpsValue.textContent = this.stats.processedFps;
                     this.elements.dropRateValue.textContent = dropRate;
+                    this.elements.repeatRateValue.textContent = repeatRate;
 
                     // Update performance indicators
                     this.updatePerformanceIndicators();
@@ -1199,8 +1320,8 @@
             startPerformanceMonitoring() {
                 // Monitor frame drops and adjust settings automatically
                 setInterval(() => {
-                    const totalFrames = this.stats.framesProcessed + this.stats.framesDropped;
-                    const dropRate = totalFrames > 0 ? (this.stats.framesDropped / totalFrames * 100) : 0;
+                    const totalReceived = this.stats.framesReceived + this.stats.bufferDropped;
+                    const dropRate = totalReceived > 0 ? (this.stats.bufferDropped / totalReceived * 100) : 0;
 
                     if (dropRate > 20 && this.settings.quality > 0.5) {
                         // Auto-reduce quality if drop rate is too high
@@ -1410,7 +1531,8 @@
                         frame_skip: parseInt(this.elements.frameSkipSlider.value),
                         target_fps: parseInt(this.elements.targetFpsSlider.value),
                         max_faces: parseInt(this.elements.maxFacesSlider.value),
-                        enable_face_enhancer: this.elements.faceEnhancerCheckbox.checked
+                        enable_face_enhancer: this.elements.faceEnhancerCheckbox.checked,
+                        processing_resolution: this.elements.processingResolutionSelect.value.split('x').map(n => parseInt(n))
                     };
 
                     let result;
@@ -1485,6 +1607,16 @@
 
                         this.elements.faceEnhancerCheckbox.checked = params.enable_face_enhancer || false;
 
+                        // Processing resolution (may arrive as list/tuple)
+                        if (params.processing_resolution && params.processing_resolution.length >= 2) {
+                            const w = params.processing_resolution[0];
+                            const h = params.processing_resolution[1];
+                            const key = `${w}x${h}`;
+                            if (this.elements.processingResolutionSelect) {
+                                this.elements.processingResolutionSelect.value = key;
+                            }
+                        }
+
                         this.updateParametersStatus('✓ Parameters loaded from server', 'success');
                         console.log('Current server parameters:', params);
                     }
@@ -1510,6 +1642,10 @@
                 this.elements.maxFacesValue.textContent = 1;
 
                 this.elements.faceEnhancerCheckbox.checked = false;
+
+                if (this.elements.processingResolutionSelect) {
+                    this.elements.processingResolutionSelect.value = '640x480';
+                }
 
                 this.updateParametersStatus('Parameters reset to defaults', 'info');
             }

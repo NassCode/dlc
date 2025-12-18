@@ -27,6 +27,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Import Deep-Live-Cam modules
 import modules.globals
 import modules.metadata
+import modules.face_analyser
 from modules.processors.frame.core import get_frame_processors_modules
 from modules.face_analyser import get_one_face, get_many_faces
 from modules.utilities import is_image
@@ -91,6 +92,18 @@ processing_params = {
     "max_faces": 1,
     "processing_resolution": (640, 480)
 }
+
+
+def _set_detector_size_from_resolution(resolution: Any) -> None:
+    try:
+        if resolution is None:
+            return
+        w, h = resolution
+        side = int(max(64, min(1280, max(int(w), int(h)))))
+        modules.globals.detector_size = (side, side)
+    except Exception:
+        # Keep previous detector size if parsing fails
+        return
 
 class ConnectionManager:
     def __init__(self):
@@ -279,6 +292,9 @@ async def update_parameters(params: ProcessingParams):
         processing_params["max_faces"] = max(1, min(10, params.max_faces))
     if params.processing_resolution is not None:
         processing_params["processing_resolution"] = params.processing_resolution
+        _set_detector_size_from_resolution(params.processing_resolution)
+        # Reinitialize analyser to apply new det_size
+        modules.face_analyser.FACE_ANALYSER = None
 
     return {
         "status": "success",
@@ -461,6 +477,9 @@ if __name__ == "__main__":
 
     # Initialize configuration
     config = ServerConfig(mode=args.mode)
+
+    # Initialize face detector size from default processing resolution
+    _set_detector_size_from_resolution(processing_params.get("processing_resolution"))
 
     print(f"Execution providers: {modules.globals.execution_providers}")
 
