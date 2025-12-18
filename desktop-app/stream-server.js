@@ -261,6 +261,10 @@ class StreamingServer {
                 this.ws.onmessage = (event) => {
                     if (event.data instanceof Blob) {
                         this.handleFrame(event.data);
+                    } else if (event.data instanceof ArrayBuffer) {
+                        // Some environments deliver binary WS frames as ArrayBuffer.
+                        const blob = new Blob([event.data], { type: 'image/jpeg' });
+                        this.handleFrame(blob);
                     } else {
                         try {
                             const data = JSON.parse(event.data);

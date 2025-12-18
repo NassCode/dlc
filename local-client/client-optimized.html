@@ -1187,6 +1187,12 @@
                 const processingLatencyMs = associatedSentAt ? Math.max(0, receivedAt - associatedSentAt) : 0;
                 this.stats.framesReceived++;
 
+                // Forward processed frames to the desktop streaming server when virtual camera/streaming is active.
+                // (The streaming server powers http://localhost:<port>/stream for OBS/browser sources.)
+                if (this.virtualCameraActive && this.isDesktopApp && window.virtualCamera) {
+                    this.sendFrameToVirtualCameraOptimized(blob);
+                }
+
                 const enqueueBitmap = (bitmap) => {
                     this.bufferQueue.push({
                         bitmap,

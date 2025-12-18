@@ -268,6 +268,14 @@ class CleanStreamingServer {
                         if (event.data instanceof Blob) {
                             this.frameCount++;
                             this.displayFrame(event.data);
+                            return;
+                        }
+
+                        // Some environments (e.g., embedded Chromium/CEF) can deliver binary frames as ArrayBuffer.
+                        if (event.data instanceof ArrayBuffer) {
+                            this.frameCount++;
+                            const blob = new Blob([event.data], { type: 'image/jpeg' });
+                            this.displayFrame(blob);
                         }
                     };
 
