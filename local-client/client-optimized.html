@@ -376,6 +376,19 @@
                 </div>
                 <div class="status" id="uploadStatus">No source image selected</div>
             </div>
+
+            <div class="control-group">
+                <h3>🎞️ Video Clip</h3>
+                <div class="upload-area" id="videoUploadArea">
+                    <input type="file" id="videoClip" accept="video/*">
+                    <div class="upload-content">
+                        <p>📁 Choose video clip</p>
+                        <p style="font-size: 0.8em; opacity: 0.7;">Upload a clip, process on server, download result</p>
+                    </div>
+                </div>
+                <button class="btn-primary" id="processVideoBtn">Process &amp; Download</button>
+                <div class="status" id="videoProcessStatus">No video selected</div>
+            </div>
         </div>
 
         <div class="controls">
@@ -650,6 +663,11 @@
                     imagePreview: document.getElementById('imagePreview'),
                     uploadStatus: document.getElementById('uploadStatus'),
 
+                    videoUploadArea: document.getElementById('videoUploadArea'),
+                    videoClip: document.getElementById('videoClip'),
+                    processVideoBtn: document.getElementById('processVideoBtn'),
+                    videoProcessStatus: document.getElementById('videoProcessStatus'),
+
                     startCameraBtn: document.getElementById('startCameraBtn'),
                     stopCameraBtn: document.getElementById('stopCameraBtn'),
                     startProcessingBtn: document.getElementById('startProcessingBtn'),
@@ -754,6 +772,20 @@
                 // File upload
                 this.elements.sourceImage.addEventListener('change', () => this.handleImageUpload());
                 this.setupDragAndDrop();
+
+                // Video processing upload
+                if (this.elements.videoUploadArea && this.elements.videoClip) {
+                    this.elements.videoUploadArea.addEventListener('click', () => this.elements.videoClip.click());
+                    this.elements.videoClip.addEventListener('change', () => {
+                        const file = this.elements.videoClip.files[0];
+                        if (!file) return;
+                        this.updateVideoProcessStatus(`Selected: ${file.name}`, 'info');
+                    });
+                }
+
+                if (this.elements.processVideoBtn) {
+                    this.elements.processVideoBtn.addEventListener('click', () => this.handleVideoProcess());
+                }
 
                 // Camera selection
                 this.elements.cameraSelect.addEventListener('change', (e) => {
@@ -928,6 +960,69 @@
                     }
                 } catch (error) {
                     this.updateUploadStatus(`✗ Upload error: ${error.message}`, 'error');
+                }
+            }
+
+            _getFilenameFromContentDisposition(contentDisposition) {
+                if (!contentDisposition) return null;
+                const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(contentDisposition);
+                const encoded = match?.[1];
+                const plain = match?.[2];
+                try {
+                    if (encoded) return decodeURIComponent(encoded);
+                } catch (_) {
+                    // ignore
+                }
+                return plain || null;
+            }
+
+            async handleVideoProcess() {
+                const file = this.elements.videoClip?.files?.[0];
+                if (!file) {
+                    this.updateVideoProcessStatus('✗ No video selected', 'error');
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const httpUrl = this.serverUrl.replace('ws://', 'http://').replace('wss://', 'https://');
+
+                if (this.elements.processVideoBtn) this.elements.processVideoBtn.disabled = true;
+                this.updateVideoProcessStatus('Uploading & processing... (this may take a while)', 'info');
+
+                try {
+                    const response = await fetch(`${httpUrl}/process-video`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(errorText || `HTTP ${response.status}`);
+                    }
+
+                    const blob = await response.blob();
+                    const headerName = response.headers.get('content-disposition');
+                    const serverFilename = this._getFilenameFromContentDisposition(headerName);
+
+                    const base = file.name.replace(/\.[^/.]+$/, '');
+                    const filename = serverFilename || `${base}_processed.mp4`;
+
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(url);
+
+                    this.updateVideoProcessStatus('✓ Processed video downloaded', 'success');
+                } catch (error) {
+                    this.updateVideoProcessStatus(`✗ Video processing failed: ${error.message}`, 'error');
+                } finally {
+                    if (this.elements.processVideoBtn) this.elements.processVideoBtn.disabled = false;
                 }
             }
 
@@ -1394,6 +1489,12 @@
             updateUploadStatus(message, type = 'info') {
                 this.elements.uploadStatus.textContent = message;
                 this.elements.uploadStatus.className = `status ${type}`;
+            }
+
+            updateVideoProcessStatus(message, type = 'info') {
+                if (!this.elements.videoProcessStatus) return;
+                this.elements.videoProcessStatus.textContent = message;
+                this.elements.videoProcessStatus.className = `status ${type}`;
             }
 
             detectDesktopApp() {

@@ -8,6 +8,7 @@ import base64
 import io
 import asyncio
 import time
+import uuid
 from collections import deque
 from typing import Optional, Dict, Any
 import logging
@@ -20,6 +21,7 @@ import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from PIL import Image
 import uvicorn
 
@@ -310,6 +312,62 @@ def process_frame_with_face_swap(frame: np.ndarray) -> np.ndarray:
     if not face_swapper or source_face_cache is None:
         return frame
 
+
+def _process_video_file_cv2(input_path: str, output_path: str) -> None:
+    cap = cv2.VideoCapture(input_path)
+    if not cap.isOpened():
+        raise RuntimeError("Failed to open input video")
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if not fps or not np.isfinite(fps) or fps <= 0:
+        fps = 30.0
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    if width <= 0 or height <= 0:
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            cap.release()
+            raise RuntimeError("Empty or unreadable video")
+        height, width = frame.shape[:2]
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(output_path, fourcc, float(fps), (width, height))
+    if not writer.isOpened():
+        cap.release()
+        raise RuntimeError("Failed to open output video writer")
+
+    try:
+        target_width, _target_height = processing_params["processing_resolution"]
+
+        while True:
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                break
+
+            # Match live path: optionally downscale for processing speed.
+            in_h, in_w = frame.shape[:2]
+            proc_frame = frame
+            if in_w > int(target_width):
+                scale = float(target_width) / float(in_w)
+                new_w = int(target_width)
+                new_h = max(1, int(in_h * scale))
+                proc_frame = cv2.resize(frame, (new_w, new_h))
+
+            processed = process_frame_with_face_swap(proc_frame)
+
+            # Write back at original dimensions to keep output consistent.
+            if processed.shape[1] != width or processed.shape[0] != height:
+                processed = cv2.resize(processed, (width, height))
+
+            writer.write(processed)
+    finally:
+        cap.release()
+        writer.release()
+
     try:
         # Create a temporary copy for processing
         temp_frame = frame.copy()
@@ -422,6 +480,56 @@ async def upload_source_image(file: UploadFile = File(...)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+
+
+@app.post("/process-video")
+async def process_video(file: UploadFile = File(...)):
+    """Upload a video clip, process it using the current source face, and return the processed video."""
+    if source_face_cache is None:
+        raise HTTPException(status_code=400, detail="No source image loaded. Upload a source image first.")
+
+    content_type = (file.content_type or "").lower()
+    if content_type and not content_type.startswith("video/") and content_type not in {
+        "application/octet-stream",
+        "application/mp4",
+        "video/mp4",
+        "video/quicktime",
+    }:
+        raise HTTPException(status_code=400, detail="File must be a video")
+
+    uploads_dir = "uploads"
+    os.makedirs(uploads_dir, exist_ok=True)
+
+    safe_name = os.path.basename(file.filename or "clip")
+    job_id = uuid.uuid4().hex
+    input_path = os.path.join(uploads_dir, f"input_{job_id}_{safe_name}")
+    output_path = os.path.join(uploads_dir, f"processed_{job_id}.mp4")
+
+    try:
+        with open(input_path, "wb") as buffer:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                buffer.write(chunk)
+
+        await asyncio.to_thread(_process_video_file_cv2, input_path, output_path)
+
+        return FileResponse(
+            output_path,
+            media_type="video/mp4",
+            filename=f"processed_{safe_name.rsplit('.', 1)[0]}.mp4",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing video: {str(e)}")
+    finally:
+        try:
+            if os.path.exists(input_path):
+                os.remove(input_path)
+        except Exception:
+            pass
 
 @app.post("/update-parameters")
 async def update_parameters(params: ProcessingParams):
