@@ -18,7 +18,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -396,7 +396,9 @@ def _process_video_file_cv2(input_path: str, output_path: str) -> None:
         # Process each face
         swap_start = time.perf_counter()
         for target_face in target_faces:
-            temp_frame = swap_face(source_face, target_face, temp_frame)
+            swapped = swap_face(source_face, target_face, temp_frame)
+            if swapped is not None:
+                temp_frame = swapped
         if profiling_enabled:
             timings["swap"].add(_ms_since(swap_start))
 
@@ -406,7 +408,9 @@ def _process_video_file_cv2(input_path: str, output_path: str) -> None:
                 from modules.processors.frame.face_enhancer import enhance_face
                 enhance_start = time.perf_counter()
                 for target_face in target_faces:
-                    temp_frame = enhance_face(target_face, temp_frame)
+                    enhanced = enhance_face(target_face, temp_frame)
+                    if enhanced is not None:
+                        temp_frame = enhanced
                 if profiling_enabled:
                     timings["enhance"].add(_ms_since(enhance_start))
             except ImportError:
@@ -483,7 +487,7 @@ async def upload_source_image(file: UploadFile = File(...)):
 
 
 @app.post("/process-video")
-async def process_video(file: UploadFile = File(...)):
+async def process_video(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """Upload a video clip, process it using the current source face, and return the processed video."""
     if source_face_cache is None:
         raise HTTPException(status_code=400, detail="No source image loaded. Upload a source image first.")
@@ -514,6 +518,15 @@ async def process_video(file: UploadFile = File(...)):
                 buffer.write(chunk)
 
         await asyncio.to_thread(_process_video_file_cv2, input_path, output_path)
+
+        def _safe_remove(path: str) -> None:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                return
+
+        background_tasks.add_task(_safe_remove, output_path)
 
         return FileResponse(
             output_path,
