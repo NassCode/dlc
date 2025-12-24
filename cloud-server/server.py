@@ -359,6 +359,10 @@ def _process_video_file_cv2(input_path: str, output_path: str) -> None:
 
             processed = process_frame_with_face_swap(proc_frame)
 
+            # Be defensive: some model paths can return None on failure.
+            if processed is None:
+                processed = frame
+
             # Write back at original dimensions to keep output consistent.
             if processed.shape[1] != width or processed.shape[0] != height:
                 processed = cv2.resize(processed, (width, height))
@@ -656,6 +660,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 frame_skip_counter = 0
                 process_start = time.perf_counter()
                 processed_frame = await asyncio.to_thread(process_frame_with_face_swap, frame)
+                if processed_frame is None:
+                    processed_frame = frame
                 if profiling_enabled:
                     timings["process_total"].add(_ms_since(process_start))
                 last_processed_frame = processed_frame
