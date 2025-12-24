@@ -9,6 +9,7 @@ import io
 import asyncio
 import time
 import uuid
+import threading
 from collections import deque
 from typing import Optional, Dict, Any
 import logging
@@ -18,11 +19,18 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import cv2
 import numpy as np
+
+# Model inference in InsightFace/onnxruntime can be unsafe under concurrent calls.
+# Serialize frame processing to keep live (/ws) and batch (/process-video) stable.
+processing_lock = threading.Lock()
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from PIL import Image
+    if frame is None:
+        return None
+
 import uvicorn
 
 # Add parent directory to path to import Deep-Live-Cam modules
