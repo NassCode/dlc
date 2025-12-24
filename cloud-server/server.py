@@ -19,17 +19,11 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import cv2
 import numpy as np
-
-# Model inference in InsightFace/onnxruntime can be unsafe under concurrent calls.
-# Serialize frame processing to keep live (/ws) and batch (/process-video) stable.
-processing_lock = threading.Lock()
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from PIL import Image
-    if frame is None:
-        return None
 
 import uvicorn
 
@@ -94,6 +88,10 @@ source_image_path = None
 source_face_cache = None
 face_swapper = None
 connected_clients = set()
+
+# Model inference in InsightFace/onnxruntime can be unsafe under concurrent calls.
+# Serialize frame processing to keep live (/ws) and batch (/process-video) stable.
+processing_lock = threading.Lock()
 
 
 class RollingMs:
@@ -313,11 +311,72 @@ def init_face_swapper():
         print(f"Failed to initialize face swapper: {e}")
         return False
 
-def process_frame_with_face_swap(frame: np.ndarray) -> np.ndarray:
+def process_frame_with_face_swap(frame: Optional[np.ndarray]) -> Optional[np.ndarray]:
     """Process a single frame with face swapping"""
     global face_swapper, source_face_cache
 
+    if frame is None:
+        return None
+
     if not face_swapper or source_face_cache is None:
+        return frame
+
+    try:
+        with processing_lock:
+            # Create a temporary copy for processing
+            temp_frame = frame.copy()
+
+            source_face = source_face_cache
+
+            # Get target faces from current frame (limited by max_faces parameter)
+            detect_start = time.perf_counter()
+            max_faces = processing_params["max_faces"]
+            if max_faces == 1:
+                target_face = get_one_face(temp_frame)
+                target_faces = [target_face] if target_face else []
+            else:
+                target_faces = get_many_faces(temp_frame)
+                if len(target_faces) > max_faces:
+                    target_faces = target_faces[:max_faces]
+
+            if profiling_enabled:
+                timings["detect"].add(_ms_since(detect_start))
+
+            if not target_faces:
+                return frame
+
+            from modules.processors.frame.face_swapper import swap_face
+
+            # Process each face
+            swap_start = time.perf_counter()
+            for target_face in target_faces:
+                swapped = swap_face(source_face, target_face, temp_frame)
+                if swapped is not None:
+                    temp_frame = swapped
+            if profiling_enabled:
+                timings["swap"].add(_ms_since(swap_start))
+
+            # Apply face enhancement if enabled
+            if processing_params["enable_face_enhancer"]:
+                try:
+                    from modules.processors.frame.face_enhancer import enhance_face
+
+                    enhance_start = time.perf_counter()
+                    for target_face in target_faces:
+                        enhanced = enhance_face(target_face, temp_frame)
+                        if enhanced is not None:
+                            temp_frame = enhanced
+                    if profiling_enabled:
+                        timings["enhance"].add(_ms_since(enhance_start))
+                except ImportError:
+                    # Face enhancer not available, skip
+                    pass
+                except Exception as e:
+                    print(f"Face enhancement error: {e}")
+
+            return temp_frame
+    except Exception as e:
+        print(f"Error processing frame: {e}")
         return frame
 
 
